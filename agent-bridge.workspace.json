@@ -1,0 +1,5 @@
+{
+  "id": "simple-chatapp",
+  "projectRoot": ".",
+  "bridgeDir": ".agent-bridge/workspaces/simple-chatapp"
+}

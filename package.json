@@ -1,0 +1,20 @@
+{
+  "name": "@local/agent-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local filesystem bridge for coordinating CLI agents.",
+  "type": "module",
+  "bin": {
+    "agent-bridge": "./bridge.mjs",
+    "agent-bridge-watch": "./bridge-watch.mjs",
+    "agent-bridge-watch-all": "./bridge-watch-all.mjs",
+    "agent-bridge-console": "./bridge-console.mjs"
+  },
+  "scripts": {
+    "test": "node --test bridge.test.mjs bridge-console.test.mjs",
+    "check": "node --check bridge.mjs && node --check bridge-watch.mjs && node --check bridge-watch-all.mjs && node --check bridge-console.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
