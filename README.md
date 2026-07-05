@@ -85,6 +85,7 @@ agent-bridge status
 agent-bridge-console
 agent-bridge-watch --agent codex
 agent-bridge-watch-all
+agent-bridge install-rules
 ```
 
 ## First-Time Setup In A Project
@@ -103,6 +104,15 @@ Check status:
 ```bash
 agent-bridge status
 ```
+
+Install the project-local agent rule snippet:
+
+```bash
+agent-bridge install-rules
+```
+
+Then reference `.agent-bridge/AGENT_BRIDGE.md` from the project's `AGENTS.md`
+or equivalent agent instruction file.
 
 ## Start Agents In tmux
 

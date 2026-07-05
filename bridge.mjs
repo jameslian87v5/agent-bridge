@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, rename } from 'node:fs/promises';
+import { readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -161,6 +161,17 @@ async function commandInit(args) {
   console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
 }
 
+async function commandInstallRules(args) {
+  const target = path.join(runtime.projectRoot, '.agent-bridge', 'AGENT_BRIDGE.md');
+  if (existsSync(target) && !args.includes('--force')) {
+    console.log(`rules=${target} (existing)`);
+    return;
+  }
+  const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
+  await writeFile(target, template);
+  console.log(`rules=${target}`);
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   runtime = await resolveRuntime(rawArgs);
@@ -174,6 +185,9 @@ async function main() {
       break;
     case 'init':
       await commandInit(args);
+      break;
+    case 'install-rules':
+      await commandInstallRules(args);
       break;
     case 'pause':
       await updateControl((current) => ({ ...current, paused: true }));

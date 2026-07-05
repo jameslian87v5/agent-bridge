@@ -68,6 +68,29 @@ test('init creates project-local workspace config by default', async () => {
   }
 });
 
+test('install-rules writes project bridge instructions without overwriting by default', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-rules-'));
+  try {
+    const first = runBridgeDefault(workspace, ['install-rules']);
+    assert.equal(first.status, 0, first.stderr);
+
+    const rulesPath = path.join(workspace, '.agent-bridge', 'AGENT_BRIDGE.md');
+    const original = await readFile(rulesPath, 'utf8');
+    assert.match(original, /Receiver Contract/);
+
+    await writeFile(rulesPath, 'custom rules\n');
+    const second = runBridgeDefault(workspace, ['install-rules']);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(await readFile(rulesPath, 'utf8'), 'custom rules\n');
+
+    const forced = runBridgeDefault(workspace, ['install-rules', '--force']);
+    assert.equal(forced.status, 0, forced.stderr);
+    assert.match(await readFile(rulesPath, 'utf8'), /Receiver Contract/);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('send writes events to the configured workspace queue', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
