@@ -95,25 +95,27 @@ async function maybeInjectNext() {
   const queue = await listJsonNames('queue');
   if (!queue.length) return;
 
-  const approved = new Set(control.approvedEventIds ?? []);
   const agentQueue = [];
   for (const name of queue) {
     const event = await readJson(path.join(runtime.bridgeDir, 'queue', name), {});
-    if ((event.to || 'codex') === agentName) agentQueue.push(name);
+    if ((event.to || 'codex') === agentName) agentQueue.push({ name, event });
   }
   if (!agentQueue.length) return;
 
-  const nextName =
+  const approved = new Set(control.approvedEventIds ?? []);
+  const autoApproveTypes = new Set(control.autoApproveTypes ?? []);
+  const next =
     control.mode === 'auto'
       ? agentQueue[0]
-      : agentQueue.find((name) => approved.has(name.replace(/\.json$/, '')));
+      : agentQueue.find(({ name, event }) => approved.has(name.replace(/\.json$/, '')) || autoApproveTypes.has(event.type));
 
-  if (!nextName) return;
+  if (!next) return;
 
+  const nextName = next.name;
   const id = nextName.replace(/\.json$/, '');
   const from = path.join(runtime.bridgeDir, 'queue', nextName);
   const to = path.join(runtime.bridgeDir, 'inflight', nextName);
-  const event = await readJson(from, {});
+  const event = next.event;
   await rename(from, to);
   await updateControl((current) => ({
     ...current,

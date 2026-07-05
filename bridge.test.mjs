@@ -8,6 +8,7 @@ import test from 'node:test';
 
 const bridgeScript = path.resolve(import.meta.dirname, 'bridge.mjs');
 const watchScript = path.resolve(import.meta.dirname, 'bridge-watch.mjs');
+const watchAllScript = path.resolve(import.meta.dirname, 'bridge-watch-all.mjs');
 
 async function makeWorkspace() {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-test-'));
@@ -37,6 +38,13 @@ function runBridgeDefault(workspace, args) {
 
 function runWatch(workspace, bridgeDir, args) {
   return spawnSync(process.execPath, [watchScript, '--project-root', workspace, '--bridge-dir', bridgeDir, ...args], {
+    cwd: workspace,
+    encoding: 'utf8'
+  });
+}
+
+function runWatchAll(workspace, bridgeDir, args) {
+  return spawnSync(process.execPath, [watchAllScript, '--project-root', workspace, '--bridge-dir', bridgeDir, ...args], {
     cwd: workspace,
     encoding: 'utf8'
   });
@@ -233,6 +241,80 @@ test('watcher tick only moves approved queue events addressed to the selected ag
     assert.equal(existsSync(path.join(bridgeDir, 'queue', 'evt_claude.json')), false);
     assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_claude.json')), true);
     assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_codex.json')), false);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('watcher auto-injects review_ready notifications in manual mode', async () => {
+  const { workspace, bridgeDir } = await makeWorkspace();
+  try {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+      await mkdir(path.join(bridgeDir, dir), { recursive: true });
+    }
+
+    await writeFile(
+      path.join(bridgeDir, 'control.json'),
+      JSON.stringify({
+        mode: 'manual',
+        paused: false,
+        maxInflight: 1,
+        autoApproveTypes: ['review_ready'],
+        approvedEventIds: [],
+        agents: {
+          codex: { target: 'noop' }
+        }
+      }, null, 2)
+    );
+    await writeFile(
+      path.join(bridgeDir, 'queue', 'review_ready_evt_done.json'),
+      JSON.stringify({ id: 'review_ready_evt_done', from: 'claude-code', to: 'codex', type: 'review_ready' }, null, 2)
+    );
+
+    const result = runWatch(workspace, bridgeDir, ['--agent', 'codex', '--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path.join(bridgeDir, 'queue', 'review_ready_evt_done.json')), false);
+    assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'review_ready_evt_done.json')), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('watch-all once processes each configured agent', async () => {
+  const { workspace, bridgeDir } = await makeWorkspace();
+  try {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+      await mkdir(path.join(bridgeDir, dir), { recursive: true });
+    }
+
+    await writeFile(
+      path.join(bridgeDir, 'control.json'),
+      JSON.stringify({
+        mode: 'manual',
+        paused: false,
+        maxInflight: 1,
+        approvedEventIds: ['evt_codex', 'evt_claude'],
+        agents: {
+          codex: { target: 'noop' },
+          'claude-code': { target: 'noop' }
+        }
+      }, null, 2)
+    );
+    await writeFile(
+      path.join(bridgeDir, 'queue', 'evt_codex.json'),
+      JSON.stringify({ id: 'evt_codex', from: 'claude-code', to: 'codex', summary: 'for codex' }, null, 2)
+    );
+    await writeFile(
+      path.join(bridgeDir, 'queue', 'evt_claude.json'),
+      JSON.stringify({ id: 'evt_claude', from: 'codex', to: 'claude-code', summary: 'for claude' }, null, 2)
+    );
+
+    const result = runWatchAll(workspace, bridgeDir, ['--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_codex.json')), true);
+    assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_claude.json')), true);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

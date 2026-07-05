@@ -209,6 +209,9 @@ The console shows:
 - recent Codex sessions
 
 In manual mode, events need `Approve` before a watcher injects them into tmux.
+`review_ready` notifications are auto-approved by default because they only tell
+the receiver to read an existing review file. Normal work events still require
+manual approval unless mode is set to `auto`.
 
 ## Send Work From Codex To Claude Code
 
