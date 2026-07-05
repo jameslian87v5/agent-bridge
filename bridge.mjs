@@ -12,6 +12,7 @@ import {
   readJson,
   resolveRuntime,
   withoutWorkspaceArgs,
+  writeWorkspaceConfig,
   writeJson
 } from './lib/config.mjs';
 
@@ -154,6 +155,12 @@ async function commandSend(args) {
   console.log(`queued ${id}`);
 }
 
+async function commandInit(args) {
+  const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
+  console.log(`initialized ${runtime.bridgeDir}`);
+  console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   runtime = await resolveRuntime(rawArgs);
@@ -166,7 +173,7 @@ async function main() {
       await commandStatus();
       break;
     case 'init':
-      console.log(`initialized ${runtime.bridgeDir}`);
+      await commandInit(args);
       break;
     case 'pause':
       await updateControl((current) => ({ ...current, paused: true }));

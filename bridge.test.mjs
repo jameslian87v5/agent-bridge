@@ -28,12 +28,37 @@ function runBridge(workspace, bridgeDir, args) {
   });
 }
 
+function runBridgeDefault(workspace, args) {
+  return spawnSync(process.execPath, [bridgeScript, ...args], {
+    cwd: workspace,
+    encoding: 'utf8'
+  });
+}
+
 function runWatch(workspace, bridgeDir, args) {
   return spawnSync(process.execPath, [watchScript, '--project-root', workspace, '--bridge-dir', bridgeDir, ...args], {
     cwd: workspace,
     encoding: 'utf8'
   });
 }
+
+test('init creates project-local workspace config by default', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-init-'));
+  try {
+    const result = runBridgeDefault(workspace, ['init']);
+
+    assert.equal(result.status, 0, result.stderr);
+    const config = await readJson(path.join(workspace, 'agent-bridge.workspace.json'));
+    const expectedBridgeDir = path.join(workspace, '.agent-bridge', 'workspaces', path.basename(workspace));
+
+    assert.equal(config.id, path.basename(workspace));
+    assert.equal(config.projectRoot, '.');
+    assert.equal(config.bridgeDir, path.join('.agent-bridge', 'workspaces', path.basename(workspace)));
+    assert.equal(existsSync(path.join(expectedBridgeDir, 'control.json')), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
 
 test('send writes events to the configured workspace queue', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
