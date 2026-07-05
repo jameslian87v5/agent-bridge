@@ -3,7 +3,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { addBookmarkForPath, buildStateForRoot, removeBookmarkForPath } from './bridge-console.mjs';
+import { addBookmarkForPath, buildStateForRoot, parseTmuxPaneLines, removeBookmarkForPath } from './bridge-console.mjs';
+
+test('parseTmuxPaneLines converts panes to bridge targets', () => {
+  const panes = parseTmuxPaneLines('codex:0.0\tzsh\t/Users/me/project\nclaude:1.2\tnode\t/tmp/work\n');
+
+  assert.deepEqual(panes, [
+    { target: 'tmux:codex:0.0', command: 'zsh', path: '/Users/me/project' },
+    { target: 'tmux:claude:1.2', command: 'node', path: '/tmp/work' }
+  ]);
+});
 
 test('console state includes Codex sessions and bridge bookmarks', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'bridge-console-test-workspace-'));

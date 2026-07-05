@@ -2,6 +2,7 @@
 import http from 'node:http';
 import { readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -86,6 +87,7 @@ export async function buildStateForRoot(options = {}) {
     },
     directories: {},
     reviews: {},
+    terminals: discoverTmuxTargets(),
     codex: await buildCodexState(activeCodexHome, activeBookmarksPath, activeWorkspaceRoot),
     logs: await tailLog(path.join(activeBridgeDir, 'logs', 'watcher.log'), 80)
   };
@@ -117,6 +119,30 @@ export async function buildStateForRoot(options = {}) {
 
 async function buildState() {
   return buildStateForRoot();
+}
+
+export function parseTmuxPaneLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [target = '', command = '', ...pathParts] = line.split('\t');
+      return {
+        target: target ? `tmux:${target}` : '',
+        command,
+        path: pathParts.join('\t')
+      };
+    })
+    .filter((pane) => pane.target);
+}
+
+export function discoverTmuxTargets() {
+  const result = spawnSync('tmux', ['list-panes', '-a', '-F', '#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_command}\t#{pane_current_path}'], {
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) return [];
+  return parseTmuxPaneLines(result.stdout);
 }
 
 async function buildCodexState(activeCodexHome, activeBookmarksPath, workspaceRoot) {
@@ -492,7 +518,7 @@ const html = String.raw`<!doctype html>
       resize: vertical;
       color: var(--text);
     }
-    input {
+    input, select {
       width: min(360px, 100%);
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -507,6 +533,13 @@ const html = String.raw`<!doctype html>
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
+    }
+    .agent-list {
+      display: grid;
+      grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr);
+      gap: 8px;
+      margin-bottom: 8px;
+      align-items: center;
     }
     .section h2 {
       margin: 0;
@@ -632,12 +665,18 @@ const html = String.raw`<!doctype html>
     </div>
     <section class="template-editor">
       <h2>
-        Agent Injection Template
+        Agent Targets And Injection Templates
         <span class="sub">{{id}} {{eventPath}} {{reviewPath}} {{ackPath}} {{summary}}</span>
       </h2>
+      <div class="agent-list">
+        <select id="agentSelect"></select>
+        <div class="template-actions">
+          <input id="newAgentInput" spellcheck="false" placeholder="new-agent-name" />
+          <button onclick="addAgent()">Add Agent</button>
+        </div>
+      </div>
       <textarea id="injectTemplate" spellcheck="false"></textarea>
       <div class="template-actions">
-        <input id="agentInput" spellcheck="false" placeholder="codex" />
         <input id="targetInput" spellcheck="false" placeholder="tmux:codex" />
         <button onclick="saveTarget()">Save Target</button>
         <button class="primary" onclick="saveTemplate()">Save Template</button>
@@ -652,6 +691,7 @@ const html = String.raw`<!doctype html>
       <section class="section" id="done"></section>
       <section class="section" id="acks"></section>
       <section class="section full" id="codexSessions"></section>
+      <section class="section full" id="terminals"></section>
       <section class="section full" id="reviews"></section>
       <section class="section full" id="logs"></section>
     </div>
@@ -661,6 +701,7 @@ const html = String.raw`<!doctype html>
     let state = null;
     let timer = null;
     let templateDirty = false;
+    let selectedAgent = 'codex';
 
     async function api(path, options = {}) {
       const res = await fetch(path, {
@@ -694,7 +735,7 @@ const html = String.raw`<!doctype html>
 
     function saveTemplate() {
       const value = document.getElementById('injectTemplate').value;
-      const agent = document.getElementById('agentInput').value.trim() || 'codex';
+      const agent = selectedAgentName();
       post('/api/control', { agent, injectTemplate: value })
         .then(() => {
           templateDirty = false;
@@ -704,7 +745,7 @@ const html = String.raw`<!doctype html>
     }
 
     function saveTarget() {
-      const agent = document.getElementById('agentInput').value.trim() || 'codex';
+      const agent = selectedAgentName();
       const value = document.getElementById('targetInput').value.trim();
       if (!value) return alertError(new Error('Target is required'));
       if (value !== 'noop' && !value.startsWith('tmux:')) return alertError(new Error('Target must start with tmux:'));
@@ -714,7 +755,7 @@ const html = String.raw`<!doctype html>
     }
 
     function resetTemplate() {
-      const agent = document.getElementById('agentInput').value.trim() || 'codex';
+      const agent = selectedAgentName();
       document.getElementById('injectTemplate').value = defaultTemplateFor(agent);
       templateDirty = true;
       setTemplateStatus('Default loaded, save to apply');
@@ -722,6 +763,25 @@ const html = String.raw`<!doctype html>
 
     function defaultTemplateFor(agent) {
       return DEFAULT_TEMPLATES[agent] || DEFAULT_TEMPLATES.codex || '';
+    }
+
+    function selectedAgentName() {
+      return selectedAgent || document.getElementById('agentSelect').value || 'codex';
+    }
+
+    function addAgent() {
+      const input = document.getElementById('newAgentInput');
+      const agent = input.value.trim();
+      if (!agent) return alertError(new Error('Agent name is required'));
+      const target = document.getElementById('targetInput').value.trim() || 'noop';
+      if (target !== 'noop' && !target.startsWith('tmux:')) return alertError(new Error('Target must start with tmux:'));
+      selectedAgent = agent;
+      post('/api/control', { agent, target, injectTemplate: defaultTemplateFor(agent) })
+        .then(() => {
+          input.value = '';
+          setTemplateStatus('Agent added');
+        })
+        .catch(alertError);
     }
 
     function setTemplateStatus(text) {
@@ -780,16 +840,15 @@ const html = String.raw`<!doctype html>
       document.getElementById('agents').textContent = Object.entries(agents).map(([name, config]) => name + '=' + (config.target || 'noop')).join(', ') || '-';
       document.getElementById('approved').textContent = (control.approvedEventIds || []).join(', ') || '-';
       document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
-      const agentInput = document.getElementById('agentInput');
-      if (!agentInput.value) agentInput.value = 'codex';
-      const selectedAgent = agentInput.value || 'codex';
+      renderAgentSelect(agents);
+      const currentAgent = selectedAgentName();
       const templateNode = document.getElementById('injectTemplate');
       if (!templateDirty && document.activeElement !== templateNode) {
-        templateNode.value = (control.injectTemplates || {})[selectedAgent] || defaultTemplateFor(selectedAgent);
+        templateNode.value = (control.injectTemplates || {})[currentAgent] || defaultTemplateFor(currentAgent);
       }
       const targetInput = document.getElementById('targetInput');
       if (document.activeElement !== targetInput) {
-        targetInput.value = ((control.agents || {})[selectedAgent] || {}).target || '';
+        targetInput.value = ((control.agents || {})[currentAgent] || {}).target || '';
       }
 
       renderQueue();
@@ -797,12 +856,24 @@ const html = String.raw`<!doctype html>
       renderDirectory('done', { actions: [] });
       renderDirectory('acks', { actions: [] });
       renderCodexSessions();
+      renderTerminals();
       renderReviews();
       renderLogs();
       for (const key of openKeys) {
         const details = document.querySelector('details[data-key="' + cssEscape(key) + '"]');
         if (details) details.open = true;
       }
+    }
+
+    function renderAgentSelect(agents) {
+      const names = Object.keys(agents || {}).sort();
+      if (!names.length) names.push('codex');
+      if (!names.includes(selectedAgent)) selectedAgent = names[0];
+      const node = document.getElementById('agentSelect');
+      const value = node.value || selectedAgent;
+      node.innerHTML = names.map((name) => '<option value="' + escapeHtml(name) + '">' + escapeHtml(name + ' -> ' + ((agents[name] || {}).target || 'noop')) + '</option>').join('');
+      node.value = names.includes(value) ? value : selectedAgent;
+      selectedAgent = node.value;
     }
 
     function renderDirectory(dir, options) {
@@ -913,6 +984,21 @@ const html = String.raw`<!doctype html>
         '</div>';
     }
 
+    function renderTerminals() {
+      const node = document.getElementById('terminals');
+      const panes = state.terminals || [];
+      node.innerHTML = '<h2>Tmux Targets<span class="count">' + panes.length + '</span></h2>' +
+        '<div class="items">' +
+          '<div class="empty">Detected tmux panes. Copy a target into the selected agent target field, then Save Target.</div>' +
+          (panes.length ? panes.map((pane) => terminalCard(pane)).join('') : '<div class="empty">No tmux panes detected or tmux is not running</div>') +
+        '</div>';
+    }
+
+    function terminalCard(pane) {
+      const label = pane.target + ' ' + (pane.command || '');
+      return '<details><summary><div class="summary-main"><div class="id">' + escapeHtml(label) + '</div><div class="event-summary">' + escapeHtml(pane.path || '') + '</div></div><div class="actions"><button data-action="copy" data-value="' + escapeHtml(pane.target) + '">Copy target</button></div></summary><pre>' + escapeHtml(JSON.stringify(pane, null, 2)) + '</pre></details>';
+    }
+
     function bookmarkCard(bookmark) {
       const sessionId = bookmark.sessionId || '';
       const label = bookmark.label || sessionId;
@@ -1013,7 +1099,8 @@ const html = String.raw`<!doctype html>
       templateDirty = true;
       setTemplateStatus('Unsaved changes');
     });
-    document.getElementById('agentInput').addEventListener('change', () => {
+    document.getElementById('agentSelect').addEventListener('change', (event) => {
+      selectedAgent = event.target.value || 'codex';
       templateDirty = false;
       loadState().catch(alertError);
     });
