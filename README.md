@@ -79,8 +79,13 @@ This creates:
 
 ```text
 agent-bridge.workspace.json
-.agent-bridge/workspaces/<project-name>/
+.agent-bridge/workspaces/<project-id>/
 ```
+
+By default, the project id is `basename-hash6`, for example
+`backend-a1b2c3`. The hash comes from the absolute project path, so two
+different directories with the same basename do not overwrite each other in the
+global registry.
 
 Install project-local agent instructions:
 
@@ -118,7 +123,7 @@ agent-bridge --project /path/to/your-project setup \
 This does the same project setup steps:
 
 - creates `/path/to/your-project/agent-bridge.workspace.json`
-- creates `/path/to/your-project/.agent-bridge/workspaces/<project-name>/`
+- creates `/path/to/your-project/.agent-bridge/workspaces/<project-id>/`
 - installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
 - writes the configured agent to tmux target mappings
 - registers the project in `~/.agent-bridge/projects.json`

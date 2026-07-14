@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { defaultWorkspaceName } from './lib/config.mjs';
 
 const bridgeScript = path.resolve(import.meta.dirname, 'bridge.mjs');
 const watchScript = path.resolve(import.meta.dirname, 'bridge-watch.mjs');
@@ -58,11 +59,13 @@ test('init creates project-local workspace config by default', async () => {
 
     assert.equal(result.status, 0, result.stderr);
     const config = await readJson(path.join(workspace, 'agent-bridge.workspace.json'));
-    const expectedBridgeDir = path.join(workspace, '.agent-bridge', 'workspaces', path.basename(workspace));
+    const resolvedWorkspace = await realpath(workspace);
+    const expectedId = defaultWorkspaceName(resolvedWorkspace);
+    const expectedBridgeDir = path.join(workspace, '.agent-bridge', 'workspaces', expectedId);
 
-    assert.equal(config.id, path.basename(workspace));
+    assert.equal(config.id, expectedId);
     assert.equal(config.projectRoot, '.');
-    assert.equal(config.bridgeDir, path.join('.agent-bridge', 'workspaces', path.basename(workspace)));
+    assert.equal(config.bridgeDir, path.join('.agent-bridge', 'workspaces', expectedId));
     assert.equal(existsSync(path.join(expectedBridgeDir, 'control.json')), true);
   } finally {
     await rm(workspace, { recursive: true, force: true });
@@ -146,7 +149,7 @@ test('setup registers projects globally and project remove deletes registry entr
 
     const registry = await readJson(path.join(registryHome, 'projects.json'));
     assert.equal(registry.projects.length, 1);
-    assert.equal(registry.projects[0].id, path.basename(workspace));
+    assert.equal(registry.projects[0].id, defaultWorkspaceName(workspace));
     assert.equal(registry.projects[0].path, workspace);
     assert.equal(registry.projects[0].agents['codex-1'].target, 'tmux:codex-1');
 
@@ -156,10 +159,10 @@ test('setup registers projects globally and project remove deletes registry entr
       env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
     });
     assert.equal(list.status, 0, list.stderr);
-    assert.match(list.stdout, new RegExp(path.basename(workspace)));
+    assert.match(list.stdout, new RegExp(defaultWorkspaceName(workspace)));
     assert.match(list.stdout, /codex-1=tmux:codex-1/);
 
-    const remove = spawnSync(process.execPath, [bridgeScript, 'project', 'remove', path.basename(workspace)], {
+    const remove = spawnSync(process.execPath, [bridgeScript, 'project', 'remove', defaultWorkspaceName(workspace)], {
       cwd: workspace,
       encoding: 'utf8',
       env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
@@ -169,6 +172,36 @@ test('setup registers projects globally and project remove deletes registry entr
     assert.deepEqual(afterRemove.projects, []);
   } finally {
     await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
+test('default project ids include a path hash to avoid basename collisions', async () => {
+  const parentA = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-parent-a-'));
+  const parentB = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-parent-b-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-collision-home-'));
+  const projectA = path.join(parentA, 'app');
+  const projectB = path.join(parentB, 'app');
+  try {
+    await mkdir(projectA);
+    await mkdir(projectB);
+
+    for (const project of [projectA, projectB]) {
+      const result = spawnSync(process.execPath, [bridgeScript, '--project', project, 'setup'], {
+        cwd: os.tmpdir(),
+        encoding: 'utf8',
+        env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+      });
+      assert.equal(result.status, 0, result.stderr);
+    }
+
+    const registry = await readJson(path.join(registryHome, 'projects.json'));
+    assert.equal(registry.projects.length, 2);
+    assert.notEqual(defaultWorkspaceName(projectA), defaultWorkspaceName(projectB));
+    assert.deepEqual(registry.projects.map((project) => project.id).sort(), [defaultWorkspaceName(projectA), defaultWorkspaceName(projectB)].sort());
+  } finally {
+    await rm(parentA, { recursive: true, force: true });
+    await rm(parentB, { recursive: true, force: true });
     await rm(registryHome, { recursive: true, force: true });
   }
 });
