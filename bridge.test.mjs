@@ -199,6 +199,44 @@ test('setup registers projects globally and project remove deletes registry entr
   }
 });
 
+test('projects --status shows registered project run summary', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-projects-status-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-projects-status-home-'));
+  try {
+    const setup = spawnSync(process.execPath, [
+      bridgeScript,
+      '--project',
+      workspace,
+      'setup',
+      '--agent',
+      'codex-1=tmux:codex-1',
+      '--port',
+      '45556'
+    ], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: bridgeEnv(registryHome)
+    });
+    assert.equal(setup.status, 0, setup.stderr);
+
+    const status = spawnSync(process.execPath, [bridgeScript, 'projects', '--status'], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: bridgeEnv(registryHome)
+    });
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, new RegExp(`${defaultWorkspaceName(workspace)} stopped`));
+    assert.match(status.stdout, new RegExp(`path=${workspace.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(status.stdout, /console=http:\/\/127\.0\.0\.1:45556/);
+    assert.match(status.stdout, /watchAll=stopped/);
+    assert.match(status.stdout, /console=stopped/);
+    assert.match(status.stdout, /codex-1=tmux:codex-1/);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
 test('setup accepts an explicit console port', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-port-project-'));
   const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-port-home-'));
@@ -217,6 +255,10 @@ test('setup accepts an explicit console port', async () => {
     });
     assert.equal(setup.status, 0, setup.stderr);
     assert.match(setup.stdout, /consolePort=45555/);
+    assert.match(setup.stdout, new RegExp(`projectId=${defaultWorkspaceName(workspace)}`));
+    assert.match(setup.stdout, /console=http:\/\/127\.0\.0\.1:45555/);
+    assert.match(setup.stdout, /agent-bridge start/);
+    assert.match(setup.stdout, /agent-bridge status --run/);
 
     const registry = await readJson(path.join(registryHome, 'projects.json'));
     assert.equal(registry.projects[0].consolePort, 45555);
@@ -443,6 +485,15 @@ test('start status --run and stop resolve the current registered project', async
     assert.equal(status.status, 0, status.stderr);
     assert.match(status.stdout, new RegExp(`${projectId}:`));
     assert.match(status.stdout, /watchAll=pid:\d+ running:true/);
+
+    const projectsStatus = spawnSync(process.execPath, [bridgeScript, 'projects', '--status'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(projectsStatus.status, 0, projectsStatus.stderr);
+    assert.match(projectsStatus.stdout, new RegExp(`${projectId} ${listenAllowed ? 'running' : 'partial'}`));
+    assert.match(projectsStatus.stdout, /watchAll=running pid:\d+/);
 
     const stop = spawnSync(process.execPath, [bridgeScript, 'stop'], {
       cwd: workspace,

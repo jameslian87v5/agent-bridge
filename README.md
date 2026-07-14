@@ -63,7 +63,20 @@ node /Users/jameslian/Work/projects/agent-bridge/bridge-watch-all.mjs
 
 ## Add Agent Bridge To A New Project
 
-Go to the target project:
+Shortest path:
+
+```bash
+cd /path/to/your-project
+agent-bridge setup
+agent-bridge start
+agent-bridge projects --status
+```
+
+`agent-bridge status --run` shows the current project's background processes.
+`agent-bridge projects --status` shows every registered project's background
+processes and console URL.
+
+Detailed setup:
 
 ```bash
 cd /path/to/your-project
@@ -139,7 +152,7 @@ agent-bridge setup
 It asks for:
 
 ```text
-Project path
+Project path, default current directory
 Agent names
 tmux target names
 Console port, default auto
@@ -150,6 +163,12 @@ List registered projects:
 
 ```bash
 agent-bridge projects
+```
+
+List registered projects with run state and console URLs:
+
+```bash
+agent-bridge projects --status
 ```
 
 Remove a registered project:
@@ -240,6 +259,9 @@ agent-bridge start
 agent-bridge status --run
 agent-bridge stop
 ```
+
+Use `status --run` for the current project. Use `projects --status` when you
+want the overview for every registered project.
 
 You can also control a project from anywhere by passing its project id:
 

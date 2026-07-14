@@ -245,15 +245,19 @@ async function commandSetup(args) {
   }
   const control = await readControl(runtime.controlPath);
   const port = await resolveSetupPort(args);
-  await registerCurrentProject(control, { consolePort: port });
+  const project = await registerCurrentProject(control, { consolePort: port });
 
+  console.log(`projectId=${project.id}`);
   console.log(`project=${runtime.projectRoot}`);
   console.log(`bridgeDir=${runtime.bridgeDir}`);
   console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
   console.log(`consolePort=${port}`);
+  console.log(`console=http://127.0.0.1:${port}`);
   if (mappings.length) console.log(`agents=${mappings.map(([agent, target]) => `${agent}=${target}`).join(', ')}`);
-  console.log(`next: agent-bridge-console --project <project> --port ${port}`);
-  console.log('next: agent-bridge-watch-all --project <project>');
+  console.log('next:');
+  console.log(`  cd ${runtime.projectRoot}`);
+  console.log('  agent-bridge start');
+  console.log('  agent-bridge status --run');
 }
 
 async function commandInteractiveSetup(args) {
@@ -323,7 +327,7 @@ async function resolveSetupPort(args) {
 }
 
 async function registerCurrentProject(control, extra = {}) {
-  await upsertProject({
+  return upsertProject({
     id: runtime.workspaceName,
     path: runtime.projectRoot,
     agents: control.agents || {},
@@ -331,10 +335,44 @@ async function registerCurrentProject(control, extra = {}) {
   });
 }
 
-async function commandProjects() {
+function projectRunState(run) {
+  const watchRunning = Boolean(run?.watchAll?.running);
+  const consoleRunning = Boolean(run?.console?.running);
+  if (watchRunning && consoleRunning) return 'running';
+  if (watchRunning || consoleRunning) return 'partial';
+  return 'stopped';
+}
+
+function processLine(name, item) {
+  if (!item) return `${name}=stopped`;
+  const state = item.running ? 'running' : 'stopped';
+  const pid = item.pid ? ` pid:${item.pid}` : '';
+  const log = item.logFile ? ` log:${item.logFile}` : '';
+  return `${name}=${state}${pid}${log}`;
+}
+
+async function commandProjects(args = []) {
   const registry = await readRegistry();
   if (!registry.projects.length) {
     console.log('projects: none');
+    return;
+  }
+  if (args.includes('--status')) {
+    const rows = await Promise.all(registry.projects.map(async (project) => ({
+      project,
+      run: await statusProject(project.id)
+    })));
+    for (const { project, run } of rows) {
+      const agents = Object.entries(project.agents || {}).map(([name, config]) => `${name}=${config.target || 'noop'}`).join(', ') || '-';
+      const port = run?.consolePort || project.consolePort;
+      const consoleUrl = port ? `http://127.0.0.1:${port}` : '-';
+      console.log(`${project.id} ${projectRunState(run)}`);
+      console.log(`  path=${project.path}`);
+      console.log(`  console=${consoleUrl}`);
+      console.log(`  ${processLine('watchAll', run?.watchAll)}`);
+      console.log(`  ${processLine('console', run?.console)}`);
+      console.log(`  agents=${agents}`);
+    }
     return;
   }
   for (const project of registry.projects) {
@@ -397,7 +435,7 @@ async function main() {
       await commandSetup(args);
       break;
     case 'projects':
-      await commandProjects();
+      await commandProjects(args);
       break;
     case 'project':
       await commandProject(args);
