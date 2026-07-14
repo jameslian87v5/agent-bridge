@@ -225,6 +225,73 @@ test('projects command does not initialize bridge runtime in the current directo
   }
 });
 
+test('start status and stop manage project daemons with pid files', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-project-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-home-'));
+  const port = 46000 + Math.floor(Math.random() * 1000);
+  let projectId = null;
+  try {
+    const setup = spawnSync(process.execPath, [
+      bridgeScript,
+      '--project',
+      workspace,
+      'setup',
+      '--agent',
+      'codex-1=noop'
+    ], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(setup.status, 0, setup.stderr);
+    const registry = await readJson(path.join(registryHome, 'projects.json'));
+    projectId = registry.projects[0].id;
+
+    const start = spawnSync(process.execPath, [bridgeScript, 'start', projectId, '--port', String(port)], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(start.status, 0, start.stderr);
+    assert.match(start.stdout, new RegExp(`started ${projectId}`));
+
+    const runPath = path.join(registryHome, 'runs', `${projectId}.json`);
+    const run = await readJson(runPath);
+    assert.equal(run.consolePort, port);
+    assert.equal(Number.isInteger(run.watchAll.pid), true);
+    assert.equal(Number.isInteger(run.console.pid), true);
+    assert.equal(existsSync(run.watchAll.logFile), true);
+    assert.equal(existsSync(run.console.logFile), true);
+
+    const status = spawnSync(process.execPath, [bridgeScript, 'status', projectId], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, /watchAll=pid:\d+ running:true/);
+    assert.match(status.stdout, /console=pid:\d+ running:true/);
+
+    const stop = spawnSync(process.execPath, [bridgeScript, 'stop', projectId], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.equal(existsSync(runPath), false);
+  } finally {
+    if (projectId) {
+      spawnSync(process.execPath, [bridgeScript, 'stop', projectId], {
+        cwd: os.tmpdir(),
+        encoding: 'utf8',
+        env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+      });
+    }
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
 test('send writes events to the configured workspace queue', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {

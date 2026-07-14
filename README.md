@@ -213,7 +213,28 @@ agents=codex=tmux:codex, claude-code=tmux:claude
 
 ## Start Watchers
 
-Normally start all configured watchers with one command:
+For registered projects, start the console and all watchers as background
+processes:
+
+```bash
+agent-bridge start <project-id>
+agent-bridge status <project-id>
+agent-bridge stop <project-id>
+```
+
+`start` writes pid files under:
+
+```text
+~/.agent-bridge/runs/<project-id>.json
+```
+
+and logs under:
+
+```text
+~/.agent-bridge/logs/<project-id>/
+```
+
+For foreground debugging, start all configured watchers with one command:
 
 ```bash
 agent-bridge-watch-all

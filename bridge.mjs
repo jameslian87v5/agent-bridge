@@ -16,6 +16,7 @@ import {
   writeJson
 } from './lib/config.mjs';
 import { readRegistry, removeProject, upsertProject } from './lib/registry.mjs';
+import { startProject, statusProject, stopProject } from './lib/process-manager.mjs';
 
 let runtime;
 
@@ -73,6 +74,25 @@ async function commandStatus() {
   console.log(`approved=${(control.approvedEventIds ?? []).join(',') || '-'}`);
   for (const [dir, names] of sections) {
     console.log(`${dir}: ${names.length}${names.length ? ` (${names.join(', ')})` : ''}`);
+  }
+}
+
+async function commandRunStatus(projectId) {
+  const run = await statusProject(projectId);
+  if (!run) {
+    console.log(`${projectId}: stopped`);
+    return;
+  }
+  console.log(`${projectId}:`);
+  console.log(`  projectPath=${run.projectPath}`);
+  console.log(`  consolePort=${run.consolePort}`);
+  for (const key of ['watchAll', 'console']) {
+    const item = run[key];
+    if (!item) {
+      console.log(`  ${key}=stopped`);
+      continue;
+    }
+    console.log(`  ${key}=pid:${item.pid} running:${item.running} log:${item.logFile}`);
   }
 }
 
@@ -255,17 +275,35 @@ async function commandProject(args) {
   throw new Error('project supports: remove <id>');
 }
 
+async function commandStart(args) {
+  const projectId = args[0];
+  if (!projectId) throw new Error('start requires project id');
+  const run = await startProject(projectId, { port: Number(readArg(args, '--port')) || undefined });
+  console.log(`started ${projectId}`);
+  console.log(`  console=http://127.0.0.1:${run.consolePort}`);
+  console.log(`  watchAll=pid:${run.watchAll?.pid} running:${run.watchAll?.running}`);
+  console.log(`  console=pid:${run.console?.pid} running:${run.console?.running}`);
+}
+
+async function commandStop(args) {
+  const projectId = args[0];
+  if (!projectId) throw new Error('stop requires project id');
+  const run = await stopProject(projectId);
+  console.log(run ? `stopped ${projectId}` : `${projectId}: stopped`);
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   const [command, ...args] = withoutWorkspaceArgs(rawArgs);
   runtime = await resolveRuntime(rawArgs);
-  const isRegistryOnlyCommand = command === 'projects' || command === 'project';
+  const isRegistryOnlyCommand = command === 'projects' || command === 'project' || command === 'start' || command === 'stop' || (command === 'status' && args[0]);
   if (!isRegistryOnlyCommand) await ensureBridge(runtime);
 
   switch (command) {
     case undefined:
     case 'status':
-      await commandStatus();
+      if (args[0]) await commandRunStatus(args[0]);
+      else await commandStatus();
       break;
     case 'init':
       await commandInit(args);
@@ -281,6 +319,12 @@ async function main() {
       break;
     case 'project':
       await commandProject(args);
+      break;
+    case 'start':
+      await commandStart(args);
+      break;
+    case 'stop':
+      await commandStop(args);
       break;
     case 'pause':
       await updateControl((current) => ({ ...current, paused: true }));
