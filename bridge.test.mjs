@@ -228,12 +228,40 @@ test('setup interactive mode prompts for project and agents', async () => {
     });
 
     assert.equal(setup.status, 0, setup.stderr);
-    assert.match(setup.stdout, /Project path:/);
+    assert.match(setup.stdout, /Project path \[/);
     assert.match(setup.stdout, /consolePort=47000/);
 
     const registry = await readJson(path.join(registryHome, 'projects.json'));
-    assert.equal(registry.projects[0].path, workspace);
+    assert.equal(await realpath(registry.projects[0].path), await realpath(workspace));
     assert.equal(registry.projects[0].agents['codex-1'].target, 'tmux:codex-pane');
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
+test('setup interactive mode defaults project path to cwd', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-interactive-cwd-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-interactive-cwd-home-'));
+  try {
+    const input = [
+      '',
+      '',
+      '',
+      'n'
+    ].join('\n') + '\n';
+    const setup = spawnSync(process.execPath, [bridgeScript, 'setup', '--interactive'], {
+      cwd: workspace,
+      input,
+      encoding: 'utf8',
+      env: bridgeEnv(registryHome)
+    });
+
+    assert.equal(setup.status, 0, setup.stderr);
+    assert.match(setup.stdout, /Project path \[/);
+
+    const registry = await readJson(path.join(registryHome, 'projects.json'));
+    assert.equal(await realpath(registry.projects[0].path), await realpath(workspace));
   } finally {
     await rm(workspace, { recursive: true, force: true });
     await rm(registryHome, { recursive: true, force: true });
@@ -292,7 +320,6 @@ test('projects command does not initialize bridge runtime in the current directo
 test('start status and stop manage project daemons with pid files', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-project-'));
   const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-home-'));
-  const port = 46000 + Math.floor(Math.random() * 1000);
   let projectId = null;
   try {
     const setup = spawnSync(process.execPath, [
@@ -310,8 +337,9 @@ test('start status and stop manage project daemons with pid files', async () => 
     assert.equal(setup.status, 0, setup.stderr);
     const registry = await readJson(path.join(registryHome, 'projects.json'));
     projectId = registry.projects[0].id;
+    const port = registry.projects[0].consolePort;
 
-    const start = spawnSync(process.execPath, [bridgeScript, 'start', projectId, '--port', String(port)], {
+    const start = spawnSync(process.execPath, [bridgeScript, 'start', projectId], {
       cwd: os.tmpdir(),
       encoding: 'utf8',
       env: bridgeEnv(registryHome)

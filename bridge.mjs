@@ -258,9 +258,9 @@ async function commandInteractiveSetup(args) {
     return rl.question(prompt);
   };
   try {
-    const projectAnswer = await ask('Project path: ');
-    const projectRoot = projectAnswer.trim();
-    if (!projectRoot) throw new Error('Project path is required');
+    const defaultProjectRoot = process.cwd();
+    const projectAnswer = await ask(`Project path [${defaultProjectRoot}]: `);
+    const projectRoot = projectAnswer.trim() || defaultProjectRoot;
 
     const agentArgs = [];
     while (true) {
