@@ -257,9 +257,10 @@ async function commandProject(args) {
 
 async function main() {
   const rawArgs = process.argv.slice(2);
-  runtime = await resolveRuntime(rawArgs);
-  await ensureBridge(runtime);
   const [command, ...args] = withoutWorkspaceArgs(rawArgs);
+  runtime = await resolveRuntime(rawArgs);
+  const isRegistryOnlyCommand = command === 'projects' || command === 'project';
+  if (!isRegistryOnlyCommand) await ensureBridge(runtime);
 
   switch (command) {
     case undefined:

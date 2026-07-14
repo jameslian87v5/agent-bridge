@@ -173,6 +173,25 @@ test('setup registers projects globally and project remove deletes registry entr
   }
 });
 
+test('projects command does not initialize bridge runtime in the current directory', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-projects-list-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-projects-home-'));
+  try {
+    const result = spawnSync(process.execPath, [bridgeScript, 'projects'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /projects: none/);
+    assert.equal(existsSync(path.join(workspace, '.agent-bridge')), false);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
 test('send writes events to the configured workspace queue', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
