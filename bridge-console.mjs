@@ -10,13 +10,14 @@ import {
   ensureBridge,
   normalizeControl,
   readControl,
+  readArg,
   resolveRuntime,
   writeJson
 } from './lib/config.mjs';
 
 let runtime = await resolveRuntime(process.argv.slice(2));
 const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-const port = Number(process.env.BRIDGE_CONSOLE_PORT ?? 4088);
+const port = Number(readArg(process.argv.slice(2), '--port') ?? process.env.BRIDGE_CONSOLE_PORT ?? 4088);
 
 async function readJson(filePath, fallback = null) {
   try {

@@ -91,6 +91,39 @@ test('install-rules writes project bridge instructions without overwriting by de
   }
 });
 
+test('setup configures a target project and agent mappings from any cwd', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-setup-'));
+  const otherCwd = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-cwd-'));
+  try {
+    const result = spawnSync(process.execPath, [
+      bridgeScript,
+      '--project',
+      workspace,
+      'setup',
+      '--agent',
+      'codex-1=tmux:codex-1',
+      '--agent',
+      'claude-main=tmux:claude-main'
+    ], {
+      cwd: otherCwd,
+      encoding: 'utf8'
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path.join(workspace, 'agent-bridge.workspace.json')), true);
+    assert.equal(existsSync(path.join(workspace, '.agent-bridge', 'AGENT_BRIDGE.md')), true);
+    const config = await readJson(path.join(workspace, 'agent-bridge.workspace.json'));
+    const control = await readJson(path.join(workspace, config.bridgeDir, 'control.json'));
+
+    assert.equal(config.projectRoot, '.');
+    assert.equal(control.agents['codex-1'].target, 'tmux:codex-1');
+    assert.equal(control.agents['claude-main'].target, 'tmux:claude-main');
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(otherCwd, { recursive: true, force: true });
+  }
+});
+
 test('send writes events to the configured workspace queue', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {

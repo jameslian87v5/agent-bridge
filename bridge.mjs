@@ -38,6 +38,27 @@ function sanitizeWorktreeName(value) {
     .slice(0, 80);
 }
 
+function parseAgentMapping(value) {
+  const [agent, ...targetParts] = String(value || '').split('=');
+  const target = targetParts.join('=');
+  if (!agent || !target) throw new Error('--agent expects <name>=<tmux:target|noop>');
+  if (target !== 'noop' && !target.startsWith('tmux:')) {
+    throw new Error('agent target must be noop or start with tmux:');
+  }
+  return [agent, target];
+}
+
+function readRepeatedArg(args, key) {
+  const values = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === key && args[index + 1]) {
+      values.push(args[index + 1]);
+      index += 1;
+    }
+  }
+  return values;
+}
+
 async function commandStatus() {
   const control = await readControl(runtime.controlPath);
   const sections = await Promise.all(dirs.slice(0, 5).map(async (dir) => [dir, await listJsonNames(dir)]));
@@ -172,6 +193,28 @@ async function commandInstallRules(args) {
   console.log(`rules=${target}`);
 }
 
+async function commandSetup(args) {
+  const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
+  await commandInstallRules(args);
+  const mappings = readRepeatedArg(args, '--agent').map(parseAgentMapping);
+  if (mappings.length) {
+    await updateControl((current) => {
+      const agents = { ...(current.agents || {}) };
+      for (const [agent, target] of mappings) {
+        agents[agent] = { ...(agents[agent] || {}), target };
+      }
+      return { ...current, agents };
+    });
+  }
+
+  console.log(`project=${runtime.projectRoot}`);
+  console.log(`bridgeDir=${runtime.bridgeDir}`);
+  console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
+  if (mappings.length) console.log(`agents=${mappings.map(([agent, target]) => `${agent}=${target}`).join(', ')}`);
+  console.log('next: agent-bridge-console --project <project> --port <port>');
+  console.log('next: agent-bridge-watch-all --project <project>');
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   runtime = await resolveRuntime(rawArgs);
@@ -188,6 +231,9 @@ async function main() {
       break;
     case 'install-rules':
       await commandInstallRules(args);
+      break;
+    case 'setup':
+      await commandSetup(args);
       break;
     case 'pause':
       await updateControl((current) => ({ ...current, paused: true }));

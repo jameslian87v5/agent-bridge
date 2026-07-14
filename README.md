@@ -106,6 +106,22 @@ Check the setup:
 agent-bridge status
 ```
 
+Or configure a project from anywhere with one command:
+
+```bash
+agent-bridge --project /path/to/your-project setup \
+  --agent codex-1=tmux:codex-1 \
+  --agent claude-main=tmux:claude-main \
+  --agent cascade-1=tmux:cascade-1
+```
+
+This does the same project setup steps:
+
+- creates `/path/to/your-project/agent-bridge.workspace.json`
+- creates `/path/to/your-project/.agent-bridge/workspaces/<project-name>/`
+- installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
+- writes the configured agent to tmux target mappings
+
 ## Start Agent Terminals
 
 Use one tmux session or pane per logical agent.
@@ -214,6 +230,22 @@ Open:
 
 ```text
 http://127.0.0.1:4088
+```
+
+For multiple projects, run one console per project on a different port:
+
+```bash
+agent-bridge-console --project /path/to/project-a --port 4088
+agent-bridge-console --project /path/to/project-b --port 4089
+agent-bridge-console --project /path/to/project-c --port 4090
+```
+
+Then open:
+
+```text
+http://127.0.0.1:4088  # project-a
+http://127.0.0.1:4089  # project-b
+http://127.0.0.1:4090  # project-c
 ```
 
 The console shows:
