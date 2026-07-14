@@ -232,7 +232,16 @@ agents=codex=tmux:codex, claude-code=tmux:claude
 ## Start Watchers
 
 For registered projects, start the console and all watchers as background
-processes:
+processes from the project directory:
+
+```bash
+cd /path/to/your-project
+agent-bridge start
+agent-bridge status --run
+agent-bridge stop
+```
+
+You can also control a project from anywhere by passing its project id:
 
 ```bash
 agent-bridge start <project-id>

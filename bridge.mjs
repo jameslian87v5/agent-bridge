@@ -98,6 +98,15 @@ async function commandRunStatus(projectId) {
   }
 }
 
+async function resolveRegisteredProjectId(projectId, commandName) {
+  if (projectId && !projectId.startsWith('-')) return projectId;
+  const registry = await readRegistry();
+  const currentPath = path.resolve(runtime.projectRoot);
+  const project = registry.projects.find((item) => path.resolve(item.path) === currentPath);
+  if (!project) throw new Error(`${commandName} requires project id or a registered current project`);
+  return project.id;
+}
+
 async function updateControl(update) {
   const control = await readControl(runtime.controlPath);
   const next = normalizeControl(update(control));
@@ -350,8 +359,7 @@ async function commandProject(args) {
 }
 
 async function commandStart(args) {
-  const projectId = args[0];
-  if (!projectId) throw new Error('start requires project id');
+  const projectId = await resolveRegisteredProjectId(args[0], 'start');
   const run = await startProject(projectId, { port: Number(readArg(args, '--port')) || undefined });
   console.log(`started ${projectId}`);
   console.log(`  console=http://127.0.0.1:${run.consolePort}`);
@@ -360,8 +368,7 @@ async function commandStart(args) {
 }
 
 async function commandStop(args) {
-  const projectId = args[0];
-  if (!projectId) throw new Error('stop requires project id');
+  const projectId = await resolveRegisteredProjectId(args[0], 'stop');
   const run = await stopProject(projectId);
   console.log(run ? `stopped ${projectId}` : `${projectId}: stopped`);
 }
@@ -376,7 +383,8 @@ async function main() {
   switch (command) {
     case undefined:
     case 'status':
-      if (args[0]) await commandRunStatus(args[0]);
+      if (args.includes('--run')) await commandRunStatus(await resolveRegisteredProjectId(args[0], 'status'));
+      else if (args[0]) await commandRunStatus(args[0]);
       else await commandStatus();
       break;
     case 'init':

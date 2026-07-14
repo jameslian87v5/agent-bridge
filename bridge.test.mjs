@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, readdir, rm, writeFile } from 'node
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { defaultWorkspaceName } from './lib/config.mjs';
@@ -40,6 +41,23 @@ function runBridgeDefault(workspace, args) {
 
 function bridgeEnv(home) {
   return { ...process.env, AGENT_BRIDGE_HOME: home, AGENT_BRIDGE_PORT_START: '47000', AGENT_BRIDGE_SKIP_PORT_PROBE: '1' };
+}
+
+function bridgeEnvWithPortProbe(home) {
+  const env = bridgeEnv(home);
+  delete env.AGENT_BRIDGE_SKIP_PORT_PROBE;
+  return env;
+}
+
+function canListenLocalhost() {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(0, '127.0.0.1');
+  });
 }
 
 function runWatch(workspace, bridgeDir, args) {
@@ -320,6 +338,8 @@ test('projects command does not initialize bridge runtime in the current directo
 test('start status and stop manage project daemons with pid files', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-project-'));
   const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-daemon-home-'));
+  const listenAllowed = await canListenLocalhost();
+  const env = listenAllowed ? bridgeEnvWithPortProbe(registryHome) : bridgeEnv(registryHome);
   let projectId = null;
   try {
     const setup = spawnSync(process.execPath, [
@@ -332,7 +352,7 @@ test('start status and stop manage project daemons with pid files', async () => 
     ], {
       cwd: os.tmpdir(),
       encoding: 'utf8',
-      env: bridgeEnv(registryHome)
+      env
     });
     assert.equal(setup.status, 0, setup.stderr);
     const registry = await readJson(path.join(registryHome, 'projects.json'));
@@ -342,7 +362,7 @@ test('start status and stop manage project daemons with pid files', async () => 
     const start = spawnSync(process.execPath, [bridgeScript, 'start', projectId], {
       cwd: os.tmpdir(),
       encoding: 'utf8',
-      env: bridgeEnv(registryHome)
+      env
     });
     assert.equal(start.status, 0, start.stderr);
     assert.match(start.stdout, new RegExp(`started ${projectId}`));
@@ -358,16 +378,17 @@ test('start status and stop manage project daemons with pid files', async () => 
     const status = spawnSync(process.execPath, [bridgeScript, 'status', projectId], {
       cwd: os.tmpdir(),
       encoding: 'utf8',
-      env: bridgeEnv(registryHome)
+      env
     });
     assert.equal(status.status, 0, status.stderr);
     assert.match(status.stdout, /watchAll=pid:\d+ running:true/);
-    assert.match(status.stdout, /console=pid:\d+ running:true/);
+    if (listenAllowed) assert.match(status.stdout, /console=pid:\d+ running:true/);
+    else assert.match(status.stdout, /console=pid:\d+ running:false/);
 
     const stop = spawnSync(process.execPath, [bridgeScript, 'stop', projectId], {
       cwd: os.tmpdir(),
       encoding: 'utf8',
-      env: bridgeEnv(registryHome)
+      env
     });
     assert.equal(stop.status, 0, stop.stderr);
     assert.equal(existsSync(runPath), false);
@@ -376,7 +397,66 @@ test('start status and stop manage project daemons with pid files', async () => 
       spawnSync(process.execPath, [bridgeScript, 'stop', projectId], {
         cwd: os.tmpdir(),
         encoding: 'utf8',
-        env: bridgeEnv(registryHome)
+        env
+      });
+    }
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
+  }
+});
+
+test('start status --run and stop resolve the current registered project', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-current-project-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-current-home-'));
+  const listenAllowed = await canListenLocalhost();
+  const env = listenAllowed ? bridgeEnvWithPortProbe(registryHome) : bridgeEnv(registryHome);
+  let projectId = null;
+  try {
+    const setup = spawnSync(process.execPath, [
+      bridgeScript,
+      'setup',
+      '--agent',
+      'codex-1=noop'
+    ], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(setup.status, 0, setup.stderr);
+
+    const registry = await readJson(path.join(registryHome, 'projects.json'));
+    projectId = registry.projects[0].id;
+
+    const start = spawnSync(process.execPath, [bridgeScript, 'start'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(start.status, 0, start.stderr);
+    assert.match(start.stdout, new RegExp(`started ${projectId}`));
+
+    const status = spawnSync(process.execPath, [bridgeScript, 'status', '--run'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, new RegExp(`${projectId}:`));
+    assert.match(status.stdout, /watchAll=pid:\d+ running:true/);
+
+    const stop = spawnSync(process.execPath, [bridgeScript, 'stop'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, new RegExp(`stopped ${projectId}`));
+  } finally {
+    if (projectId) {
+      spawnSync(process.execPath, [bridgeScript, 'stop', projectId], {
+        cwd: workspace,
+        encoding: 'utf8',
+        env
       });
     }
     await rm(workspace, { recursive: true, force: true });
