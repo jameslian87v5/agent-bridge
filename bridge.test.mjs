@@ -32,7 +32,8 @@ function runBridge(workspace, bridgeDir, args) {
 function runBridgeDefault(workspace, args) {
   return spawnSync(process.execPath, [bridgeScript, ...args], {
     cwd: workspace,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: { ...process.env, AGENT_BRIDGE_HOME: path.join(workspace, '.test-agent-bridge-home') }
   });
 }
 
@@ -106,7 +107,8 @@ test('setup configures a target project and agent mappings from any cwd', async 
       'claude-main=tmux:claude-main'
     ], {
       cwd: otherCwd,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: path.join(otherCwd, '.test-agent-bridge-home') }
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -121,6 +123,53 @@ test('setup configures a target project and agent mappings from any cwd', async 
   } finally {
     await rm(workspace, { recursive: true, force: true });
     await rm(otherCwd, { recursive: true, force: true });
+  }
+});
+
+test('setup registers projects globally and project remove deletes registry entry', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-registry-project-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-registry-home-'));
+  try {
+    const setup = spawnSync(process.execPath, [
+      bridgeScript,
+      '--project',
+      workspace,
+      'setup',
+      '--agent',
+      'codex-1=tmux:codex-1'
+    ], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(setup.status, 0, setup.stderr);
+
+    const registry = await readJson(path.join(registryHome, 'projects.json'));
+    assert.equal(registry.projects.length, 1);
+    assert.equal(registry.projects[0].id, path.basename(workspace));
+    assert.equal(registry.projects[0].path, workspace);
+    assert.equal(registry.projects[0].agents['codex-1'].target, 'tmux:codex-1');
+
+    const list = spawnSync(process.execPath, [bridgeScript, 'projects'], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(list.status, 0, list.stderr);
+    assert.match(list.stdout, new RegExp(path.basename(workspace)));
+    assert.match(list.stdout, /codex-1=tmux:codex-1/);
+
+    const remove = spawnSync(process.execPath, [bridgeScript, 'project', 'remove', path.basename(workspace)], {
+      cwd: workspace,
+      encoding: 'utf8',
+      env: { ...process.env, AGENT_BRIDGE_HOME: registryHome }
+    });
+    assert.equal(remove.status, 0, remove.stderr);
+    const afterRemove = await readJson(path.join(registryHome, 'projects.json'));
+    assert.deepEqual(afterRemove.projects, []);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
   }
 });
 

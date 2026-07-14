@@ -15,6 +15,7 @@ import {
   writeWorkspaceConfig,
   writeJson
 } from './lib/config.mjs';
+import { readRegistry, removeProject, upsertProject } from './lib/registry.mjs';
 
 let runtime;
 
@@ -178,6 +179,8 @@ async function commandSend(args) {
 
 async function commandInit(args) {
   const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
+  const control = await readControl(runtime.controlPath);
+  await registerCurrentProject(control);
   console.log(`initialized ${runtime.bridgeDir}`);
   console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
 }
@@ -206,6 +209,8 @@ async function commandSetup(args) {
       return { ...current, agents };
     });
   }
+  const control = await readControl(runtime.controlPath);
+  await registerCurrentProject(control);
 
   console.log(`project=${runtime.projectRoot}`);
   console.log(`bridgeDir=${runtime.bridgeDir}`);
@@ -213,6 +218,41 @@ async function commandSetup(args) {
   if (mappings.length) console.log(`agents=${mappings.map(([agent, target]) => `${agent}=${target}`).join(', ')}`);
   console.log('next: agent-bridge-console --project <project> --port <port>');
   console.log('next: agent-bridge-watch-all --project <project>');
+}
+
+async function registerCurrentProject(control) {
+  await upsertProject({
+    id: runtime.workspaceName,
+    path: runtime.projectRoot,
+    agents: control.agents || {}
+  });
+}
+
+async function commandProjects() {
+  const registry = await readRegistry();
+  if (!registry.projects.length) {
+    console.log('projects: none');
+    return;
+  }
+  for (const project of registry.projects) {
+    const agents = Object.entries(project.agents || {}).map(([name, config]) => `${name}=${config.target || 'noop'}`).join(', ') || '-';
+    const port = project.consolePort ? ` port=${project.consolePort}` : '';
+    console.log(`${project.id}${port}`);
+    console.log(`  path=${project.path}`);
+    console.log(`  agents=${agents}`);
+  }
+}
+
+async function commandProject(args) {
+  const subcommand = args[0];
+  if (subcommand === 'remove') {
+    const id = args[1];
+    if (!id) throw new Error('project remove requires project id');
+    const removed = await removeProject(id);
+    console.log(removed ? `removed ${id}` : `project not found: ${id}`);
+    return;
+  }
+  throw new Error('project supports: remove <id>');
 }
 
 async function main() {
@@ -234,6 +274,12 @@ async function main() {
       break;
     case 'setup':
       await commandSetup(args);
+      break;
+    case 'projects':
+      await commandProjects();
+      break;
+    case 'project':
+      await commandProject(args);
       break;
     case 'pause':
       await updateControl((current) => ({ ...current, paused: true }));

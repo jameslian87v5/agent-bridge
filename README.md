@@ -121,6 +121,19 @@ This does the same project setup steps:
 - creates `/path/to/your-project/.agent-bridge/workspaces/<project-name>/`
 - installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
 - writes the configured agent to tmux target mappings
+- registers the project in `~/.agent-bridge/projects.json`
+
+List registered projects:
+
+```bash
+agent-bridge projects
+```
+
+Remove a registered project:
+
+```bash
+agent-bridge project remove <project-id>
+```
 
 ## Start Agent Terminals
 
