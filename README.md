@@ -117,7 +117,8 @@ Or configure a project from anywhere with one command:
 agent-bridge --project /path/to/your-project setup \
   --agent codex-1=tmux:codex-1 \
   --agent claude-main=tmux:claude-main \
-  --agent cascade-1=tmux:cascade-1
+  --agent cascade-1=tmux:cascade-1 \
+  --port auto
 ```
 
 This does the same project setup steps:
@@ -127,6 +128,23 @@ This does the same project setup steps:
 - installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
 - writes the configured agent to tmux target mappings
 - registers the project in `~/.agent-bridge/projects.json`
+- assigns a console port, starting from 4088
+
+You can also run an interactive setup wizard:
+
+```bash
+agent-bridge setup
+```
+
+It asks for:
+
+```text
+Project path
+Agent names
+tmux target names
+Console port, default auto
+Whether to start watchers and console now
+```
 
 List registered projects:
 

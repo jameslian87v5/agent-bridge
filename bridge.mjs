@@ -2,6 +2,8 @@
 import { readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 import {
   defaultControl,
   dirs,
@@ -15,7 +17,7 @@ import {
   writeWorkspaceConfig,
   writeJson
 } from './lib/config.mjs';
-import { readRegistry, removeProject, upsertProject } from './lib/registry.mjs';
+import { allocateConsolePort, readRegistry, removeProject, upsertProject } from './lib/registry.mjs';
 import { startProject, statusProject, stopProject } from './lib/process-manager.mjs';
 
 let runtime;
@@ -217,6 +219,9 @@ async function commandInstallRules(args) {
 }
 
 async function commandSetup(args) {
+  if (!args.includes('--no-prompt') && !readArg(process.argv.slice(2), '--project') && !readArg(process.argv.slice(2), '--project-root') && !process.env.AGENT_BRIDGE_CONFIG && (process.stdin.isTTY || args.includes('--interactive'))) {
+    return commandInteractiveSetup(args);
+  }
   const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
   await commandInstallRules(args);
   const mappings = readRepeatedArg(args, '--agent').map(parseAgentMapping);
@@ -230,21 +235,90 @@ async function commandSetup(args) {
     });
   }
   const control = await readControl(runtime.controlPath);
-  await registerCurrentProject(control);
+  const port = await resolveSetupPort(args);
+  await registerCurrentProject(control, { consolePort: port });
 
   console.log(`project=${runtime.projectRoot}`);
   console.log(`bridgeDir=${runtime.bridgeDir}`);
   console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
+  console.log(`consolePort=${port}`);
   if (mappings.length) console.log(`agents=${mappings.map(([agent, target]) => `${agent}=${target}`).join(', ')}`);
-  console.log('next: agent-bridge-console --project <project> --port <port>');
+  console.log(`next: agent-bridge-console --project <project> --port ${port}`);
   console.log('next: agent-bridge-watch-all --project <project>');
 }
 
-async function registerCurrentProject(control) {
+async function commandInteractiveSetup(args) {
+  const scriptedAnswers = process.stdin.isTTY ? null : await readScriptedAnswers();
+  const rl = scriptedAnswers ? null : readline.createInterface({ input, output });
+  const ask = async (prompt) => {
+    if (scriptedAnswers) {
+      output.write(prompt);
+      return scriptedAnswers.shift() ?? '';
+    }
+    return rl.question(prompt);
+  };
+  try {
+    const projectAnswer = await ask('Project path: ');
+    const projectRoot = projectAnswer.trim();
+    if (!projectRoot) throw new Error('Project path is required');
+
+    const agentArgs = [];
+    while (true) {
+      const agent = (await ask('Agent name (empty to finish): ')).trim();
+      if (!agent) break;
+      const targetInput = (await ask(`tmux target for ${agent} (session or tmux:target): `)).trim();
+      if (!targetInput) throw new Error(`tmux target is required for ${agent}`);
+      const target = targetInput === 'noop' || targetInput.startsWith('tmux:') ? targetInput : `tmux:${targetInput}`;
+      agentArgs.push('--agent', `${agent}=${target}`);
+    }
+
+    const portAnswer = (await ask('Console port (auto): ')).trim();
+    const startAnswer = (await ask('Start watchers and console now? [y/N]: ')).trim().toLowerCase();
+    const nextArgs = [
+      '--project',
+      projectRoot,
+      'setup',
+      ...agentArgs,
+      '--port',
+      portAnswer || 'auto',
+      '--no-prompt',
+      ...(args.includes('--force') ? ['--force'] : [])
+    ];
+    runtime = await resolveRuntime(nextArgs);
+    await ensureBridge(runtime);
+    await commandSetup(nextArgs.slice(3));
+    if (startAnswer === 'y' || startAnswer === 'yes') {
+      await commandStart([runtime.workspaceName]);
+    }
+  } finally {
+    if (rl) rl.close();
+  }
+}
+
+async function readScriptedAnswers() {
+  const chunks = [];
+  for await (const chunk of input) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8').split(/\r?\n/);
+}
+
+async function resolveSetupPort(args) {
+  const portArg = readArg(args, '--port');
+  if (portArg && portArg !== 'auto') {
+    const port = Number(portArg);
+    if (!Number.isInteger(port) || port <= 0) throw new Error('--port expects a positive integer or auto');
+    return port;
+  }
+  const registry = await readRegistry();
+  const existing = registry.projects.find((project) => project.id === runtime.workspaceName);
+  return existing?.consolePort || allocateConsolePort();
+}
+
+async function registerCurrentProject(control, extra = {}) {
   await upsertProject({
     id: runtime.workspaceName,
     path: runtime.projectRoot,
-    agents: control.agents || {}
+    agents: control.agents || {},
+    ...extra
   });
 }
 
