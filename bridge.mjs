@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -21,6 +21,17 @@ import { allocateConsolePort, readRegistry, removeProject, upsertProject } from 
 import { startProject, statusProject, stopProject } from './lib/process-manager.mjs';
 
 let runtime;
+
+const agentBridgeReferenceBlock = `<!-- agent-bridge:start -->
+## Agent Bridge
+
+For cross-agent work in this project, follow:
+
+\`.agent-bridge/AGENT_BRIDGE.md\`
+
+This covers the queue/review/ack workflow, review_ready notifications, and worktree rules. If a bridge event requests a worktree, create and enter that worktree before editing code, while still writing review and ack files back to the original bridge workspace.
+<!-- agent-bridge:end -->
+`;
 
 async function listJsonNames(dir) {
   try {
@@ -220,11 +231,40 @@ async function commandInstallRules(args) {
   const target = path.join(runtime.projectRoot, '.agent-bridge', 'AGENT_BRIDGE.md');
   if (existsSync(target) && !args.includes('--force')) {
     console.log(`rules=${target} (existing)`);
-    return;
+  } else {
+    const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
+    await writeFile(target, template);
+    console.log(`rules=${target}`);
   }
-  const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
-  await writeFile(target, template);
-  console.log(`rules=${target}`);
+  if (args.includes('--link-agent-docs')) await linkAgentDocs(args);
+}
+
+async function linkAgentDocs(args) {
+  const docs = ['AGENTS.md', 'CLAUDE.md'];
+  if (args.includes('--include-windsurf')) {
+    docs.push(path.join('.windsurf', 'rules', 'agent-bridge.md'));
+    if (existsSync(path.join(runtime.projectRoot, '.windsurfrules'))) docs.push('.windsurfrules');
+  }
+  for (const relativePath of docs) {
+    const target = path.join(runtime.projectRoot, relativePath);
+    await writeMarkedBlock(target, agentBridgeReferenceBlock);
+    console.log(`linked=${target}`);
+  }
+}
+
+async function writeMarkedBlock(filePath, block) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  let current = '';
+  try {
+    current = await readFile(filePath, 'utf8');
+  } catch {
+    current = '';
+  }
+  const marker = /<!-- agent-bridge:start -->[\s\S]*?<!-- agent-bridge:end -->\n?/;
+  const next = marker.test(current)
+    ? current.replace(marker, block)
+    : `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${block}`;
+  await writeFile(filePath, next);
 }
 
 async function commandSetup(args) {
@@ -295,6 +335,8 @@ async function commandInteractiveSetup(args) {
       '--port',
       portAnswer || 'auto',
       '--no-prompt',
+      ...(args.includes('--link-agent-docs') ? ['--link-agent-docs'] : []),
+      ...(args.includes('--include-windsurf') ? ['--include-windsurf'] : []),
       ...(args.includes('--force') ? ['--force'] : [])
     ];
     runtime = await resolveRuntime(nextArgs);

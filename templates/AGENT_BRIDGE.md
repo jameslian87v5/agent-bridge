@@ -43,3 +43,31 @@ create follow-up work only if action is needed.
 If an event has `worktree.required=true` and code edits are needed, create and
 enter the requested git worktree before editing. Still write review and ack files
 to the original bridge paths from the event prompt.
+
+Use the event payload as the source of truth:
+
+```json
+{
+  "worktree": {
+    "required": true,
+    "name": "fix-round-1",
+    "base": "HEAD",
+    "branch": "bridge/fix-round-1",
+    "path": ".agent-bridge/worktrees/fix-round-1"
+  }
+}
+```
+
+Typical flow:
+
+```bash
+git worktree add <worktree.path> -b <worktree.branch> <worktree.base>
+cd <worktree.path>
+```
+
+Make code edits inside that worktree. Do not edit the main project tree for that
+event unless the user explicitly says isolation is unnecessary.
+
+When finished, write the required `reviews/<event_id>.review.md` and
+`acks/<event_id>.json` files to the original bridge workspace paths shown in the
+event prompt, not to a separate bridge directory inside the worktree.

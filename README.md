@@ -67,7 +67,7 @@ Shortest path:
 
 ```bash
 cd /path/to/your-project
-agent-bridge setup
+agent-bridge setup --link-agent-docs --include-windsurf
 agent-bridge start
 agent-bridge projects --status
 ```
@@ -112,11 +112,23 @@ This creates:
 .agent-bridge/AGENT_BRIDGE.md
 ```
 
-Then add one short line to the project's `AGENTS.md`, `CLAUDE.md`, or equivalent instruction file:
+To also link those rules from agent-specific instruction files, run:
+
+```bash
+agent-bridge install-rules --link-agent-docs --include-windsurf
+```
+
+This creates or updates:
 
 ```text
-For cross-agent work, follow .agent-bridge/AGENT_BRIDGE.md.
+AGENTS.md
+CLAUDE.md
+.windsurf/rules/agent-bridge.md
 ```
+
+If `.windsurfrules` already exists, it is updated too. The inserted block is
+wrapped in `agent-bridge:start` / `agent-bridge:end` markers, so the command is
+safe to run repeatedly.
 
 Check the setup:
 
@@ -131,7 +143,9 @@ agent-bridge --project /path/to/your-project setup \
   --agent codex-1=tmux:codex-1 \
   --agent claude-main=tmux:claude-main \
   --agent cascade-1=tmux:cascade-1 \
-  --port auto
+  --port auto \
+  --link-agent-docs \
+  --include-windsurf
 ```
 
 This does the same project setup steps:
@@ -139,6 +153,7 @@ This does the same project setup steps:
 - creates `/path/to/your-project/agent-bridge.workspace.json`
 - creates `/path/to/your-project/.agent-bridge/workspaces/<project-id>/`
 - installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
+- optionally links the bridge rules into `AGENTS.md`, `CLAUDE.md`, and Windsurf rules
 - writes the configured agent to tmux target mappings
 - registers the project in `~/.agent-bridge/projects.json`
 - assigns a console port, starting from 4088

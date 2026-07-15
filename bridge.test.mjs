@@ -117,6 +117,36 @@ test('install-rules writes project bridge instructions without overwriting by de
   }
 });
 
+test('install-rules links bridge rules into agent docs and windsurf rules idempotently', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-linked-rules-'));
+  try {
+    await mkdir(path.join(workspace, '.windsurf', 'rules'), { recursive: true });
+    await writeFile(path.join(workspace, '.windsurfrules'), '# Existing Windsurf rules\n');
+
+    const first = runBridgeDefault(workspace, ['install-rules', '--link-agent-docs', '--include-windsurf']);
+    assert.equal(first.status, 0, first.stderr);
+
+    const agents = await readFile(path.join(workspace, 'AGENTS.md'), 'utf8');
+    const claude = await readFile(path.join(workspace, 'CLAUDE.md'), 'utf8');
+    const windsurfRule = await readFile(path.join(workspace, '.windsurf', 'rules', 'agent-bridge.md'), 'utf8');
+    const legacyWindsurf = await readFile(path.join(workspace, '.windsurfrules'), 'utf8');
+
+    for (const text of [agents, claude, windsurfRule, legacyWindsurf]) {
+      assert.match(text, /agent-bridge:start/);
+      assert.match(text, /\.agent-bridge\/AGENT_BRIDGE\.md/);
+      assert.match(text, /worktree/i);
+      assert.match(text, /queue\/review\/ack/i);
+    }
+
+    const second = runBridgeDefault(workspace, ['install-rules', '--link-agent-docs', '--include-windsurf']);
+    assert.equal(second.status, 0, second.stderr);
+    const updatedAgents = await readFile(path.join(workspace, 'AGENTS.md'), 'utf8');
+    assert.equal((updatedAgents.match(/agent-bridge:start/g) || []).length, 1);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('setup configures a target project and agent mappings from any cwd', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-setup-'));
   const otherCwd = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-cwd-'));
@@ -148,6 +178,33 @@ test('setup configures a target project and agent mappings from any cwd', async 
   } finally {
     await rm(workspace, { recursive: true, force: true });
     await rm(otherCwd, { recursive: true, force: true });
+  }
+});
+
+test('setup can link agent docs and windsurf rules', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-setup-linked-rules-'));
+  const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-setup-linked-rules-home-'));
+  try {
+    const result = spawnSync(process.execPath, [
+      bridgeScript,
+      '--project',
+      workspace,
+      'setup',
+      '--link-agent-docs',
+      '--include-windsurf'
+    ], {
+      cwd: os.tmpdir(),
+      encoding: 'utf8',
+      env: bridgeEnv(registryHome)
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(path.join(workspace, 'AGENTS.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
+    assert.match(await readFile(path.join(workspace, 'CLAUDE.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
+    assert.match(await readFile(path.join(workspace, '.windsurf', 'rules', 'agent-bridge.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(registryHome, { recursive: true, force: true });
   }
 });
 
