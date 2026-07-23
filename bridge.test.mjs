@@ -133,9 +133,11 @@ test('install-rules links bridge rules into agent docs and windsurf rules idempo
 
     for (const text of [agents, claude, windsurfRule, legacyWindsurf]) {
       assert.match(text, /agent-bridge:start/);
-      assert.match(text, /\.agent-bridge\/AGENT_BRIDGE\.md/);
+      assert.match(text, /Agent Bridge Rules/);
       assert.match(text, /worktree/i);
-      assert.match(text, /queue\/review\/ack/i);
+      assert.match(text, /queue\//);
+      assert.match(text, /reviews\//);
+      assert.match(text, /acks\//);
     }
 
     const second = runBridgeDefault(workspace, ['install-rules', '--link-agent-docs', '--include-windsurf']);
@@ -199,9 +201,9 @@ test('setup can link agent docs and windsurf rules', async () => {
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(await readFile(path.join(workspace, 'AGENTS.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
-    assert.match(await readFile(path.join(workspace, 'CLAUDE.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
-    assert.match(await readFile(path.join(workspace, '.windsurf', 'rules', 'agent-bridge.md'), 'utf8'), /\.agent-bridge\/AGENT_BRIDGE\.md/);
+    assert.match(await readFile(path.join(workspace, 'AGENTS.md'), 'utf8'), /Agent Bridge Rules/);
+    assert.match(await readFile(path.join(workspace, 'CLAUDE.md'), 'utf8'), /Agent Bridge Rules/);
+    assert.match(await readFile(path.join(workspace, '.windsurf', 'rules', 'agent-bridge.md'), 'utf8'), /Agent Bridge Rules/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
     await rm(registryHome, { recursive: true, force: true });

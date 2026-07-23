@@ -245,9 +245,11 @@ async function linkAgentDocs(args) {
     docs.push(path.join('.windsurf', 'rules', 'agent-bridge.md'));
     if (existsSync(path.join(runtime.projectRoot, '.windsurfrules'))) docs.push('.windsurfrules');
   }
+  const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
+  const block = `<!-- agent-bridge:start -->\n${template}\n<!-- agent-bridge:end -->\n`;
   for (const relativePath of docs) {
     const target = path.join(runtime.projectRoot, relativePath);
-    await writeMarkedBlock(target, agentBridgeReferenceBlock);
+    await writeMarkedBlock(target, block);
     console.log(`linked=${target}`);
   }
 }
@@ -273,6 +275,7 @@ async function commandSetup(args) {
   }
   const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
   await commandInstallRules(args);
+  if (!args.includes('--no-link-agent-docs')) await linkAgentDocs(args);
   const mappings = readRepeatedArg(args, '--agent').map(parseAgentMapping);
   if (mappings.length) {
     await updateControl((current) => {

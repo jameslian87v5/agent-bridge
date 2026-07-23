@@ -160,11 +160,17 @@ function inject(target, message) {
     throw new Error(`unsupported target: ${target}`);
   }
   const tmuxTarget = target.slice('tmux:'.length);
-  const result = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, message, 'C-m'], {
+  const sendResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', message], {
     encoding: 'utf8'
   });
-  if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || `tmux send-keys failed with status ${result.status}`);
+  if (sendResult.status !== 0) {
+    throw new Error(sendResult.stderr.trim() || `tmux send-keys failed with status ${sendResult.status}`);
+  }
+  const enterResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'C-m'], {
+    encoding: 'utf8'
+  });
+  if (enterResult.status !== 0) {
+    throw new Error(enterResult.stderr.trim() || `tmux send-keys Enter failed with status ${enterResult.status}`);
   }
 }
 
