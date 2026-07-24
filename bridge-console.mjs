@@ -375,6 +375,21 @@ async function handleApi(req, res, pathname) {
     return sendJson(res, 200, { ok: true });
   }
 
+  if (req.method === 'POST' && pathname === '/api/cleanup') {
+    const all = searchParams.get('all') === '1';
+    const dirsToClean = all ? ['inflight', 'done', 'acks', 'reviews'] : ['inflight'];
+    let total = 0;
+    for (const dir of dirsToClean) {
+      const dirPath = path.join(runtime.bridgeDir, dir);
+      let names;
+      try { names = await readdir(dirPath); } catch { continue; }
+      const files = names.filter((n) => n.endsWith('.json') || n.endsWith('.md'));
+      for (const name of files) await rm(path.join(dirPath, name), { force: true });
+      total += files.length;
+    }
+    return sendJson(res, 200, { ok: true, removed: total });
+  }
+
   const actionMatch = pathname.match(/^\/api\/(approve|reject|ack)\/([^/]+)$/);
   if (req.method === 'POST' && actionMatch) {
     const [, action, rawId] = actionMatch;
@@ -654,6 +669,8 @@ const html = String.raw`<!doctype html>
       <button onclick="setPaused(false)">Resume</button>
       <button onclick="setMode('manual')">Manual</button>
       <button onclick="setMode('auto')">Auto</button>
+      <button class="danger" onclick="cleanup(false)">Clear Inflight</button>
+      <button class="danger" onclick="cleanup(true)">Clear All</button>
       <button class="primary" onclick="loadState()">Refresh</button>
     </div>
   </header>
@@ -791,6 +808,12 @@ const html = String.raw`<!doctype html>
         const node = document.getElementById('templateStatus');
         if (node.textContent === text) node.textContent = '';
       }, 2500);
+    }
+
+    function cleanup(all) {
+      if (confirm(all ? 'Clear all inflight, done, acks, and reviews?' : 'Clear stuck inflight events?')) {
+        post('/api/cleanup' + (all ? '?all=1' : '')).then(() => loadState()).catch(alertError);
+      }
     }
 
     function approve(id) {
