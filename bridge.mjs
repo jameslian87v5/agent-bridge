@@ -219,6 +219,30 @@ async function commandSend(args) {
   console.log(`queued ${id}`);
 }
 
+async function commandCleanup(args) {
+  const dirsToClean = args.includes('--all')
+    ? ['inflight', 'done', 'acks', 'reviews']
+    : ['inflight'];
+  let total = 0;
+  for (const dir of dirsToClean) {
+    const dirPath = path.join(runtime.bridgeDir, dir);
+    let names;
+    try {
+      names = await readdir(dirPath);
+    } catch {
+      continue;
+    }
+    const jsonFiles = names.filter((n) => n.endsWith('.json') || n.endsWith('.md'));
+    for (const name of jsonFiles) {
+      await rm(path.join(dirPath, name), { force: true });
+    }
+    if (jsonFiles.length) console.log(`cleared ${dir}/ (${jsonFiles.length} files)`);
+    total += jsonFiles.length;
+  }
+  if (!total) console.log('nothing to clean');
+  else console.log(`cleanup done (${total} files removed)`);
+}
+
 async function commandInit(args) {
   const wroteConfig = await writeWorkspaceConfig(runtime, { force: args.includes('--force') });
   const control = await readControl(runtime.controlPath);
@@ -523,6 +547,9 @@ async function main() {
       break;
     case 'send':
       await commandSend(args);
+      break;
+    case 'cleanup':
+      await commandCleanup(args);
       break;
     default:
       throw new Error(`unknown command: ${command}`);

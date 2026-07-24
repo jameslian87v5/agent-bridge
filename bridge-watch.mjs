@@ -166,7 +166,7 @@ function inject(target, message) {
   if (sendResult.status !== 0) {
     throw new Error(sendResult.stderr.trim() || `tmux send-keys failed with status ${sendResult.status}`);
   }
-  const enterResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter'], {
+  const enterResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter', 'Enter'], {
     encoding: 'utf8'
   });
   if (enterResult.status !== 0) {
