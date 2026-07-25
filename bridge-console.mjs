@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import http from 'node:http';
-import { readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
