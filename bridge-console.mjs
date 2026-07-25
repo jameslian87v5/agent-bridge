@@ -343,7 +343,8 @@ async function removeBookmark(label) {
   return removeBookmarkForPath(path.join(runtime.bridgeDir, 'session-bookmarks.json'), label);
 }
 
-async function handleApi(req, res, pathname) {
+async function handleApi(req, res, url) {
+  const pathname = url.pathname;
   if (req.method === 'GET' && pathname === '/api/state') {
     return sendJson(res, 200, await buildState());
   }
@@ -376,7 +377,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === 'POST' && pathname === '/api/cleanup') {
-    const all = searchParams.get('all') === '1';
+    const all = url.searchParams.get('all') === '1';
     const dirsToClean = all ? ['inflight', 'done', 'acks', 'reviews'] : ['inflight'];
     let total = 0;
     for (const dir of dirsToClean) {
@@ -1139,7 +1140,7 @@ async function main() {
     try {
       const url = new URL(req.url || '/', `http://localhost:${port}`);
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(req, res, url.pathname);
+        await handleApi(req, res, url);
       } else {
         sendHtml(res);
       }
