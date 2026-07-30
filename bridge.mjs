@@ -19,7 +19,7 @@ import {
   writeJson
 } from './lib/config.mjs';
 import { allocateConsolePort, readRegistry, removeProject, upsertProject } from './lib/registry.mjs';
-import { startProject, statusProject, stopProject } from './lib/process-manager.mjs';
+import { findProject, startProject, statusProject, stopProject } from './lib/process-manager.mjs';
 
 let runtime;
 
@@ -525,8 +525,12 @@ async function commandStart(args) {
 async function commandRestart(args) {
   const projectId = await resolveRegisteredProjectId(args[0], 'restart');
   await stopProject(projectId);
+  const project = await findProject(projectId);
+  runtime = await resolveRuntime(['--project', project.path]);
+  await commandInstallRules(['--force', '--link-agent-docs', ...(args.includes('--include-windsurf') ? ['--include-windsurf'] : [])]);
   const run = await startProject(projectId, { port: Number(readArg(args, '--port')) || undefined });
   console.log(`restarted ${projectId}`);
+  console.log(`  rules=refreshed`);
   console.log(`  console=http://127.0.0.1:${run.consolePort}`);
   console.log(`  watchAll=pid:${run.watchAll?.pid} running:${run.watchAll?.running}`);
   console.log(`  console=pid:${run.console?.pid} running:${run.console?.running}`);

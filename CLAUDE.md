@@ -1,3 +1,4 @@
+<!-- agent-bridge:start -->
 # Agent Bridge Rules
 
 Use Agent Bridge for cross-agent work in this project.
@@ -57,8 +58,11 @@ All agents in this project follow these principles:
 ## Agent Roles
 
 <!-- agent-bridge:roles -->
-Agent roles are configured during setup and stored in `control.json`.
-Each agent has a `role` field describing its responsibility and boundaries.
+### codex_test_1
+- supervisor, no coding just testand design
+
+### claude_test_1
+- worker, coder, and implementor
 <!-- agent-bridge:roles-end -->
 
 ## Worktrees
@@ -94,3 +98,5 @@ event unless the user explicitly says isolation is unnecessary.
 When finished, write the required `reviews/<event_id>.review.md` and
 `acks/<event_id>.json` files to the original bridge workspace paths shown in the
 event prompt, not to a separate bridge directory inside the worktree.
+
+<!-- agent-bridge:end -->

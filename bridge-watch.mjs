@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import {
   defaultControl,
+  defaultInjectTemplate,
   ensureBridge,
   nextAutoHops,
   normalizeControl,
@@ -152,13 +153,11 @@ async function maybeInjectNext() {
     bridgeDir: runtime.bridgeDir
   };
   const agentConfig = (control.agents || {})[agentName] || {};
-  const template =
-    (control.injectTemplates || {})[agentName] ||
-    defaultControl.injectTemplates[agentName] ||
-    defaultControl.injectTemplates.codex;
+  const template = (control.injectTemplates || {})[agentName] || defaultInjectTemplate;
   const role = agentConfig.role ? ` ${agentConfig.role}` : '';
   const message = renderTemplate(template, {
     id,
+    agentName,
     from: event.from || '',
     to: event.to || '',
     type: event.type || '',
@@ -285,10 +284,7 @@ async function checkInflightTimeout() {
       await appendLog(`timeout failed ${id} (max retries ${maxRetries} exceeded) elapsed=${Math.round(elapsed / 1000)}s`);
       continue;
     }
-    const template =
-      (control.injectTemplates || {})[agentName] ||
-      defaultControl.injectTemplates[agentName] ||
-      defaultControl.injectTemplates.codex;
+    const template = (control.injectTemplates || {})[agentName] || defaultInjectTemplate;
     const paths = {
       eventPath: path.join(runtime.bridgeDir, 'inflight', name),
       ackPath: path.join(runtime.bridgeDir, 'acks', `${id}.json`),
@@ -299,6 +295,7 @@ async function checkInflightTimeout() {
     const role = agentConfig.role ? ` ${agentConfig.role}` : '';
     const message = renderTemplate(template, {
       id,
+      agentName,
       from: event.from || '',
       to: event.to || '',
       type: event.type || '',

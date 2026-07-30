@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   defaultControl,
+  defaultInjectTemplate,
   ensureBridge,
   normalizeControl,
   readControl,
@@ -800,11 +801,11 @@ const html = String.raw`<!doctype html>
     </div>
   </main>
   <script>
-    const DEFAULT_TEMPLATES = ${JSON.stringify(defaultControl.injectTemplates)};
+    const DEFAULT_TEMPLATE = ${JSON.stringify(defaultInjectTemplate)};
     let state = null;
     let timer = null;
     let templateDirty = false;
-    let selectedAgent = 'codex';
+    let selectedAgent = '';
 
     async function api(path, options = {}) {
       const res = await fetch(path, {
@@ -901,7 +902,7 @@ const html = String.raw`<!doctype html>
     }
 
     function defaultTemplateFor(agent) {
-      return DEFAULT_TEMPLATES[agent] || DEFAULT_TEMPLATES.codex || '';
+      return DEFAULT_TEMPLATE.replace(/\{\{agentName\}\}/g, agent || '');
     }
 
     function selectedAgentName() {
