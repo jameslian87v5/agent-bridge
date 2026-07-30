@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, rename, writeFile } from 'node:fs/promises';
+import { readdir, rename, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -44,9 +44,13 @@ async function processAcks() {
     const event = await readJson(path.join(runtime.bridgeDir, 'inflight', name), {});
     if ((event.to || 'codex') !== agentName) continue;
     const id = name.replace(/\.json$/, '');
-    if (!existsSync(path.join(runtime.bridgeDir, 'acks', `${id}.json`))) continue;
+    const ackPath = path.join(runtime.bridgeDir, 'acks', `${id}.json`);
+    const reviewPath = path.join(runtime.bridgeDir, 'reviews', `${id}.review.md`);
+    const hasAck = existsSync(ackPath);
+    const hasReview = existsSync(reviewPath);
+    if (!hasAck && !hasReview) continue;
     await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'done', name));
-    await appendLog(`done ${id}`);
+    await appendLog(`done ${id} ack=${hasAck} review=${hasReview}`);
     await maybeQueueReviewReady(event, id);
   }
 }
@@ -143,8 +147,16 @@ async function maybeInjectNext() {
     summary: event.summary || '',
     ...paths
   });
-  inject(agentConfig.target || 'noop', message);
-  await appendLog(`injected ${id} target=${agentConfig.target || 'noop'}`);
+  const target = agentConfig.target || 'noop';
+  const injectResult = injectWithVerify(target, message, control);
+  if (injectResult.verified) {
+    const updatedEvent = { ...event, injectedAt: new Date().toISOString(), retryCount: 0 };
+    await writeJson(to, updatedEvent);
+    await appendLog(`injected ${id} target=${target} verified=true`);
+  } else {
+    await rename(to, path.join(runtime.bridgeDir, 'failed', nextName));
+    await appendLog(`inject failed ${id} target=${target} verified=false error=${injectResult.error}`);
+  }
 }
 
 function renderTemplate(template, values) {
@@ -154,28 +166,129 @@ function renderTemplate(template, values) {
   });
 }
 
-function inject(target, message) {
-  if (target === 'noop') return;
+function capturePane(target, lines = 30) {
+  if (!target.startsWith('tmux:')) return '';
+  const tmuxTarget = target.slice('tmux:'.length);
+  const result = spawnSync('tmux', ['capture-pane', '-t', tmuxTarget, '-p', '-S', `-${lines}`], {
+    encoding: 'utf8'
+  });
+  return result.status === 0 ? result.stdout : '';
+}
+
+function isTmuxTargetAlive(target) {
+  if (!target.startsWith('tmux:')) return false;
+  const sessionName = target.slice('tmux:'.length).split(':')[0];
+  const result = spawnSync('tmux', ['has-session', '-t', sessionName], { encoding: 'utf8' });
+  return result.status === 0;
+}
+
+function injectWithVerify(target, message, control) {
+  if (target === 'noop') return { verified: true };
   if (!target.startsWith('tmux:')) {
-    throw new Error(`unsupported target: ${target}`);
+    return { verified: false, error: `unsupported target: ${target}` };
+  }
+  if (!isTmuxTargetAlive(target)) {
+    return { verified: false, error: `tmux session not found: ${target}` };
   }
   const tmuxTarget = target.slice('tmux:'.length);
-  const sendResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', message], {
-    encoding: 'utf8'
-  });
-  if (sendResult.status !== 0) {
-    throw new Error(sendResult.stderr.trim() || `tmux send-keys failed with status ${sendResult.status}`);
+  const maxRetries = control.maxRetries ?? 2;
+  const verifyEnabled = control.verifyInject !== false;
+  const marker = `Bridge event`;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const sendResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', message], {
+      encoding: 'utf8'
+    });
+    if (sendResult.status !== 0) {
+      continue;
+    }
+    spawnSync('sleep', ['0.3']);
+    const enterResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter'], {
+      encoding: 'utf8'
+    });
+    if (enterResult.status !== 0) {
+      continue;
+    }
+    if (!verifyEnabled) {
+      return { verified: true };
+    }
+    spawnSync('sleep', ['0.5']);
+    const paneContent = capturePane(target, 50);
+    if (paneContent.includes(marker)) {
+      return { verified: true };
+    }
   }
-  const enterResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, 'Enter', 'Enter'], {
-    encoding: 'utf8'
-  });
-  if (enterResult.status !== 0) {
-    throw new Error(enterResult.stderr.trim() || `tmux send-keys Enter failed with status ${enterResult.status}`);
+  return { verified: false, error: `message not found in pane after ${maxRetries + 1} attempts` };
+}
+
+async function checkInflightTimeout() {
+  const control = await readControl(runtime.controlPath);
+  const timeoutMs = control.inflightTimeoutMs ?? 5 * 60 * 1000;
+  const maxRetries = control.maxRetries ?? 2;
+  const inflight = await listJsonNames('inflight');
+  for (const name of inflight) {
+    const event = await readJson(path.join(runtime.bridgeDir, 'inflight', name), {});
+    if ((event.to || 'codex') !== agentName) continue;
+    const id = name.replace(/\.json$/, '');
+    const injectedAt = event.injectedAt ? new Date(event.injectedAt).getTime() : 0;
+    const elapsed = Date.now() - injectedAt;
+    if (elapsed < timeoutMs) continue;
+    const reviewPath = path.join(runtime.bridgeDir, 'reviews', `${id}.review.md`);
+    const hasReview = existsSync(reviewPath);
+    if (hasReview) {
+      await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'done', name));
+      await appendLog(`timeout completed ${id} (review found, no ack) elapsed=${Math.round(elapsed / 1000)}s`);
+      await maybeQueueReviewReady(event, id);
+      continue;
+    }
+    const agentConfig = (control.agents || {})[agentName] || {};
+    const target = agentConfig.target || 'noop';
+    const alive = isTmuxTargetAlive(target);
+    if (!alive) {
+      await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'failed', name));
+      await appendLog(`timeout failed ${id} (tmux session dead) elapsed=${Math.round(elapsed / 1000)}s`);
+      continue;
+    }
+    const retryCount = event.retryCount ?? 0;
+    if (retryCount >= maxRetries) {
+      await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'failed', name));
+      await appendLog(`timeout failed ${id} (max retries ${maxRetries} exceeded) elapsed=${Math.round(elapsed / 1000)}s`);
+      continue;
+    }
+    const template =
+      (control.injectTemplates || {})[agentName] ||
+      defaultControl.injectTemplates[agentName] ||
+      defaultControl.injectTemplates.codex;
+    const paths = {
+      eventPath: path.join(runtime.bridgeDir, 'inflight', name),
+      ackPath: path.join(runtime.bridgeDir, 'acks', `${id}.json`),
+      reviewPath,
+      projectRoot: runtime.projectRoot,
+      bridgeDir: runtime.bridgeDir
+    };
+    const message = renderTemplate(template, {
+      id,
+      from: event.from || '',
+      to: event.to || '',
+      type: event.type || '',
+      requestedAction: event.requestedAction || '',
+      summary: event.summary || '',
+      ...paths
+    });
+    const injectResult = injectWithVerify(target, message, control);
+    if (injectResult.verified) {
+      const updatedEvent = { ...event, injectedAt: new Date().toISOString(), retryCount: retryCount + 1 };
+      await writeJson(path.join(runtime.bridgeDir, 'inflight', name), updatedEvent);
+      await appendLog(`re-injected ${id} retry=${retryCount + 1} elapsed=${Math.round(elapsed / 1000)}s`);
+    } else {
+      await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'failed', name));
+      await appendLog(`re-inject failed ${id} error=${injectResult.error} elapsed=${Math.round(elapsed / 1000)}s`);
+    }
   }
 }
 
 async function tick() {
   await processAcks();
+  await checkInflightTimeout();
   await maybeInjectNext();
 }
 

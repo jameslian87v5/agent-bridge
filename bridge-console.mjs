@@ -88,7 +88,7 @@ export async function buildStateForRoot(options = {}) {
     },
     directories: {},
     reviews: {},
-    terminals: discoverTmuxTargets(),
+    terminals: discoverTmuxTargets(activeWorkspaceRoot, Object.values(control.agents || {}).map((a) => a.target).filter(Boolean)),
     codex: await buildCodexState(activeCodexHome, activeBookmarksPath, activeWorkspaceRoot),
     logs: await tailLog(path.join(activeBridgeDir, 'logs', 'watcher.log'), 80)
   };
@@ -138,12 +138,27 @@ export function parseTmuxPaneLines(text) {
     .filter((pane) => pane.target);
 }
 
-export function discoverTmuxTargets() {
+export function discoverTmuxTargets(projectRoot, configuredTargets = []) {
   const result = spawnSync('tmux', ['list-panes', '-a', '-F', '#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_command}\t#{pane_current_path}'], {
     encoding: 'utf8'
   });
   if (result.status !== 0) return [];
-  return parseTmuxPaneLines(result.stdout);
+  const allPanes = parseTmuxPaneLines(result.stdout);
+  const root = path.resolve(projectRoot);
+  const matched = allPanes.filter((pane) => pane.path && path.resolve(pane.path) === root);
+  const matchedTargets = new Set(matched.map((pane) => pane.target.split(':')[0]));
+  for (const t of configuredTargets) {
+    if (!t.startsWith('tmux:')) continue;
+    const sessionName = t.slice('tmux:'.length).split(':')[0];
+    if (!matchedTargets.has(sessionName)) {
+      const pane = allPanes.find((p) => p.target.startsWith(`${sessionName}:`));
+      if (pane) {
+        matched.push(pane);
+        matchedTargets.add(sessionName);
+      }
+    }
+  }
+  return matched;
 }
 
 async function buildCodexState(activeCodexHome, activeBookmarksPath, workspaceRoot) {
