@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   defaultControl,
   ensureBridge,
+  nextAutoHops,
   normalizeControl,
   readArg,
   readControl,
@@ -15,6 +16,7 @@ import {
 } from './lib/config.mjs';
 
 const pollMs = Number(process.env.BRIDGE_POLL_MS ?? 1500);
+const loggedOverBudget = new Set();
 let runtime;
 let agentName;
 
@@ -76,6 +78,7 @@ async function maybeQueueReviewReady(event, id) {
     summary: `Review ready: ${id}`,
     replyTo: id,
     ...(event.threadId ? { threadId: event.threadId } : {}),
+    ...(event.autoHops ? { autoHops: event.autoHops } : {}),
     body: `${agentName} has written the review for ${id}. Read reviewFile and continue only if action is needed.`,
     reviewFile: reviewPath,
     ackFile: path.join(runtime.bridgeDir, 'acks', `${id}.json`),
@@ -108,12 +111,27 @@ async function maybeInjectNext() {
 
   const approved = new Set(control.approvedEventIds ?? []);
   const autoApproveTypes = new Set(control.autoApproveTypes ?? []);
+  const maxAutoHops = control.maxAutoHopsPerAgent ?? 10;
+  const overBudget = [];
+  const withinAutoBudget = ({ name, event }) => {
+    if (approved.has(name.replace(/\.json$/, ''))) return true;
+    if ((event.autoHops?.[agentName] ?? 0) < maxAutoHops) return true;
+    overBudget.push(name.replace(/\.json$/, ''));
+    return false;
+  };
   const next =
     control.mode === 'auto'
-      ? agentQueue[0]
+      ? agentQueue.find(withinAutoBudget)
       : agentQueue.find(({ name, event }) => approved.has(name.replace(/\.json$/, '')) || autoApproveTypes.has(event.type));
 
-  if (!next) return;
+  if (!next) {
+    for (const id of overBudget) {
+      if (loggedOverBudget.has(id)) continue;
+      loggedOverBudget.add(id);
+      await appendLog(`auto hop budget exhausted ${id} (${maxAutoHops} per agent); waiting for manual approve`);
+    }
+    return;
+  }
 
   const nextName = next.name;
   const id = nextName.replace(/\.json$/, '');
@@ -152,9 +170,11 @@ async function maybeInjectNext() {
   const target = agentConfig.target || 'noop';
   const injectResult = injectWithVerify(target, message, control);
   if (injectResult.verified) {
-    const updatedEvent = { ...event, injectedAt: new Date().toISOString(), retryCount: 0 };
+    const autoHops = nextAutoHops(event.autoHops, agentName);
+    const updatedEvent = { ...event, injectedAt: new Date().toISOString(), retryCount: 0, autoHops };
     await writeJson(to, updatedEvent);
-    await appendLog(`injected ${id} target=${target} verified=true`);
+    loggedOverBudget.delete(id);
+    await appendLog(`injected ${id} target=${target} verified=true hops=${autoHops[agentName]}/${maxAutoHops}`);
   } else {
     await rename(to, path.join(runtime.bridgeDir, 'failed', nextName));
     await appendLog(`inject failed ${id} target=${target} verified=false error=${injectResult.error}`);

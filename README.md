@@ -498,6 +498,41 @@ agent-bridge ack <event_id>
 
 Manual mode is recommended for normal work. Auto mode injects queued work without approval.
 
+### Auto Mode Loop Budget
+
+Auto mode injects without approval, so a reply chain between two agents could
+ping-pong indefinitely. Each event carries an `autoHops` counter keyed by agent:
+
+```json
+{
+  "id": "evt_20260730120000",
+  "replyTo": "evt_20260730115000",
+  "autoHops": { "codex-1": 4, "claude-1": 3 }
+}
+```
+
+The counter increments when the watcher for that agent injects the event, and is
+inherited by any event created with `--reply-to`, plus the `review_ready`
+notifications the watcher generates. Once an agent reaches
+`maxAutoHopsPerAgent` (default 10) in a chain, its watcher stops auto-injecting
+and leaves the event in `queue/`, so a chain costs at most 10 injections per
+agent, 20 hops total.
+
+```json
+{
+  "maxAutoHopsPerAgent": 10
+}
+```
+
+To continue past the budget, approve the event explicitly:
+
+```bash
+agent-bridge approve <event_id>
+```
+
+Sending without `--reply-to` starts a new chain with a fresh budget. Injection
+retries after a timeout do not consume budget; they reuse the same hop.
+
 ## Troubleshooting
 
 ### Console Does Not Show New UI

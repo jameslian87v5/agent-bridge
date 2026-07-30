@@ -8,6 +8,7 @@ import {
   defaultControl,
   dirs,
   ensureBridge,
+  findEventById,
   normalizeControl,
   readArg,
   readControl,
@@ -205,7 +206,11 @@ async function commandSend(args) {
   };
   if (bodyFile) event.bodyFile = bodyFile;
   if (threadId) event.threadId = threadId;
-  if (replyTo) event.replyTo = replyTo;
+  if (replyTo) {
+    event.replyTo = replyTo;
+    const predecessor = await findEventById(runtime.bridgeDir, replyTo);
+    if (predecessor?.autoHops) event.autoHops = predecessor.autoHops;
+  }
   if (worktreeRequired) {
     event.worktree = {
       required: true,

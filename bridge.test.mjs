@@ -922,3 +922,124 @@ test('watcher does not queue review_ready for review_ready events', async () => 
     await rm(workspace, { recursive: true, force: true });
   }
 });
+
+async function makeAutoHopWorkspace(autoHops, extraControl = {}) {
+  const { workspace, bridgeDir } = await makeWorkspace();
+  for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'failed']) {
+    await mkdir(path.join(bridgeDir, dir), { recursive: true });
+  }
+  await writeFile(
+    path.join(bridgeDir, 'control.json'),
+    JSON.stringify({
+      mode: 'auto',
+      paused: false,
+      maxInflight: 1,
+      approvedEventIds: [],
+      agents: { codex: { target: 'noop' } },
+      ...extraControl
+    }, null, 2)
+  );
+  await writeFile(
+    path.join(bridgeDir, 'queue', 'evt_loop.json'),
+    JSON.stringify({
+      id: 'evt_loop',
+      from: 'claude-code',
+      to: 'codex',
+      summary: 'loop test',
+      ...(autoHops ? { autoHops } : {})
+    }, null, 2)
+  );
+  return { workspace, bridgeDir };
+}
+
+test('auto mode injects and increments the per-agent hop counter', async () => {
+  const { workspace, bridgeDir } = await makeAutoHopWorkspace({ codex: 3 });
+  try {
+    const result = runWatch(workspace, bridgeDir, ['--agent', 'codex', '--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    const event = await readJson(path.join(bridgeDir, 'inflight', 'evt_loop.json'));
+    assert.equal(event.autoHops.codex, 4);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('auto mode stops injecting once an agent exhausts its hop budget', async () => {
+  const { workspace, bridgeDir } = await makeAutoHopWorkspace({ codex: 10 });
+  try {
+    const result = runWatch(workspace, bridgeDir, ['--agent', 'codex', '--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path.join(bridgeDir, 'queue', 'evt_loop.json')), true);
+    assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_loop.json')), false);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('hop budget counts each agent separately', async () => {
+  const { workspace, bridgeDir } = await makeAutoHopWorkspace({ 'claude-code': 10, codex: 2 });
+  try {
+    const result = runWatch(workspace, bridgeDir, ['--agent', 'codex', '--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    const event = await readJson(path.join(bridgeDir, 'inflight', 'evt_loop.json'));
+    assert.equal(event.autoHops.codex, 3);
+    assert.equal(event.autoHops['claude-code'], 10);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('manual approve overrides an exhausted hop budget', async () => {
+  const { workspace, bridgeDir } = await makeAutoHopWorkspace({ codex: 10 }, { approvedEventIds: ['evt_loop'] });
+  try {
+    const result = runWatch(workspace, bridgeDir, ['--agent', 'codex', '--once']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(path.join(bridgeDir, 'inflight', 'evt_loop.json')), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('send inherits the hop counter from the event it replies to', async () => {
+  const { workspace, bridgeDir } = await makeWorkspace();
+  try {
+    const init = runBridge(workspace, bridgeDir, ['init']);
+    assert.equal(init.status, 0, init.stderr);
+    await writeFile(
+      path.join(bridgeDir, 'done', 'evt_parent.json'),
+      JSON.stringify({ id: 'evt_parent', from: 'claude-code', to: 'codex', autoHops: { codex: 4, 'claude-code': 3 } }, null, 2)
+    );
+
+    const result = runBridge(workspace, bridgeDir, ['send', '--to', 'claude-code', '--from', 'codex', '--reply-to', 'evt_parent']);
+    assert.equal(result.status, 0, result.stderr);
+
+    const queued = (await readdir(path.join(bridgeDir, 'queue'))).filter((name) => name.startsWith('evt_'));
+    assert.equal(queued.length, 1);
+    const event = await readJson(path.join(bridgeDir, 'queue', queued[0]));
+    assert.deepEqual(event.autoHops, { codex: 4, 'claude-code': 3 });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('send starts a fresh hop budget when it is not a reply', async () => {
+  const { workspace, bridgeDir } = await makeWorkspace();
+  try {
+    const init = runBridge(workspace, bridgeDir, ['init']);
+    assert.equal(init.status, 0, init.stderr);
+
+    const result = runBridge(workspace, bridgeDir, ['send', '--to', 'codex', '--from', 'claude-code']);
+    assert.equal(result.status, 0, result.stderr);
+
+    const queued = (await readdir(path.join(bridgeDir, 'queue'))).filter((name) => name.startsWith('evt_'));
+    assert.equal(queued.length, 1);
+    const event = await readJson(path.join(bridgeDir, 'queue', queued[0]));
+    assert.equal(event.autoHops, undefined);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
