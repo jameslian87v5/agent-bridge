@@ -47,9 +47,11 @@ agent must act.
 <!-- agent-bridge:principles -->
 All agents in this project follow these principles:
 
-- Keep changes minimal and focused.
-- Write reviews with concrete findings, not vague statements.
-- Do not over-engineer.
+- 系统思维：把改动放回整个系统看，不只看当前文件。
+- 架构思维：先想清楚边界、依赖和数据流，再动手写代码。
+- 第一性原理：复杂问题先问最底层事实和真正要保证的不变量，不按既有代码类比修补。
+- 对抗式审查：完成后主动找破口，证明哪里会坏，不是复述方案为什么对。
+- 奥卡姆剃刀：不过度工程化，能用一行解决就不写十行。
 <!-- agent-bridge:principles-end -->
 
 ## Agent Roles

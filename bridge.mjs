@@ -382,25 +382,6 @@ async function commandInteractiveSetup(args) {
       agentArgs.push('--agent', `${agent}=${target}`);
     }
 
-    const presetPrinciples = [
-      '对抗式审查：完成后主动找破口，不只复述方案为什么对',
-      '第一性原理：复杂问题先问最底层事实和不变量，不按既有代码类比修补',
-      'TDD / 测试先行',
-      '不 over-engineering',
-      '最小改动原则'
-    ];
-    output.write('Shared principles (comma-separated numbers, or type your own, Enter to skip):\n');
-    presetPrinciples.forEach((p, i) => output.write(`  ${i + 1}. ${p}\n`));
-    const principlesInput = (await ask('Select: ')).trim();
-    let sharedPrinciples = [];
-    if (principlesInput) {
-      if (/^\d/.test(principlesInput)) {
-        sharedPrinciples = principlesInput.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= presetPrinciples.length).map((n) => presetPrinciples[n - 1]);
-      } else {
-        sharedPrinciples = principlesInput.split('\n').map((s) => s.trim()).filter(Boolean);
-      }
-    }
-
     const portAnswer = (await ask('Console port (auto): ')).trim();
     const startAnswer = (await ask('Start watchers and console now? [y/N]: ')).trim().toLowerCase();
     const nextArgs = [
@@ -418,13 +399,13 @@ async function commandInteractiveSetup(args) {
     runtime = await resolveRuntime(nextArgs);
     await ensureBridge(runtime);
     await commandSetup(nextArgs.slice(3));
-    if (Object.keys(agentRoles).length || sharedPrinciples.length) {
+    if (Object.keys(agentRoles).length) {
       await updateControl((current) => {
         const agents = { ...(current.agents || {}) };
         for (const [name, role] of Object.entries(agentRoles)) {
           agents[name] = { ...(agents[name] || {}), role };
         }
-        return { ...current, agents, sharedPrinciples };
+        return { ...current, agents };
       });
       const control = await readControl(runtime.controlPath);
       const rendered = await renderBridgeRules(control);

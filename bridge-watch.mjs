@@ -177,6 +177,14 @@ function capturePane(target, lines = 30) {
   return result.status === 0 ? result.stdout : '';
 }
 
+function exitCopyMode(tmuxTarget) {
+  const check = spawnSync('tmux', ['display-message', '-p', '-t', tmuxTarget, '#{pane_in_mode}'], {
+    encoding: 'utf8'
+  });
+  if (check.status !== 0 || check.stdout.trim() !== '1') return;
+  spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-X', 'cancel'], { encoding: 'utf8' });
+}
+
 function isTmuxTargetAlive(target) {
   if (!target.startsWith('tmux:')) return false;
   const sessionName = target.slice('tmux:'.length).split(':')[0];
@@ -197,6 +205,7 @@ function injectWithVerify(target, message, control) {
   const verifyEnabled = control.verifyInject !== false;
   const marker = `Bridge event`;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    exitCopyMode(tmuxTarget);
     const sendResult = spawnSync('tmux', ['send-keys', '-t', tmuxTarget, '-l', message], {
       encoding: 'utf8'
     });

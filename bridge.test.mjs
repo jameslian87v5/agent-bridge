@@ -338,7 +338,6 @@ test('setup interactive mode prompts for project and agents', async () => {
       '',
       '',
       '',
-      '',
       'n'
     ].join('\n') + '\n';
     const setup = spawnSync(process.execPath, [bridgeScript, 'setup', '--interactive'], {
@@ -366,7 +365,6 @@ test('setup interactive mode defaults project path to cwd', async () => {
   const registryHome = await mkdtemp(path.join(os.tmpdir(), 'agent-bridge-interactive-cwd-home-'));
   try {
     const input = [
-      '',
       '',
       '',
       '',
