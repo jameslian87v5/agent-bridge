@@ -138,6 +138,7 @@ async function maybeInjectNext() {
     (control.injectTemplates || {})[agentName] ||
     defaultControl.injectTemplates[agentName] ||
     defaultControl.injectTemplates.codex;
+  const role = agentConfig.role ? ` ${agentConfig.role}` : '';
   const message = renderTemplate(template, {
     id,
     from: event.from || '',
@@ -145,6 +146,7 @@ async function maybeInjectNext() {
     type: event.type || '',
     requestedAction: event.requestedAction || '',
     summary: event.summary || '',
+    role,
     ...paths
   });
   const target = agentConfig.target || 'noop';
@@ -265,6 +267,7 @@ async function checkInflightTimeout() {
       projectRoot: runtime.projectRoot,
       bridgeDir: runtime.bridgeDir
     };
+    const role = agentConfig.role ? ` ${agentConfig.role}` : '';
     const message = renderTemplate(template, {
       id,
       from: event.from || '',
@@ -272,6 +275,7 @@ async function checkInflightTimeout() {
       type: event.type || '',
       requestedAction: event.requestedAction || '',
       summary: event.summary || '',
+      role,
       ...paths
     });
     const injectResult = injectWithVerify(target, message, control);

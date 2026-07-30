@@ -30,13 +30,34 @@ When you receive a bridge event:
 
 Keep reviews concise and actionable.
 
-## Follow-Up Work
+## Review Cycle (One-Shot)
 
-Do not hide new work only inside a review. If another agent must act, create a
-new `queue/*.json` event with `replyTo` and `threadId`.
+The review cycle is **one-shot**: receiver writes review → watcher auto-notifies
+sender via `review_ready` event → sender reads review → done.
 
-`review_ready` events are notifications. Read the referenced review file, then
-create follow-up work only if action is needed.
+`review_ready` events do **not** trigger another `review_ready`. The cycle stops
+after one round. If you need further action, create a **new** `queue/*.json`
+event with `replyTo` and `threadId`.
+
+Do not hide new work inside a review. Explicitly queue a new event if another
+agent must act.
+
+## Shared Principles
+
+<!-- agent-bridge:principles -->
+All agents in this project follow these principles:
+
+- Keep changes minimal and focused.
+- Write reviews with concrete findings, not vague statements.
+- Do not over-engineer.
+<!-- agent-bridge:principles-end -->
+
+## Agent Roles
+
+<!-- agent-bridge:roles -->
+Agent roles are configured during setup and stored in `control.json`.
+Each agent has a `role` field describing its responsibility and boundaries.
+<!-- agent-bridge:roles-end -->
 
 ## Worktrees
 

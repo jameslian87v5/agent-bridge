@@ -251,26 +251,53 @@ async function commandInit(args) {
   console.log(`config=${runtime.configPath}${wroteConfig ? '' : ' (existing)'}`);
 }
 
+async function renderBridgeRules(control) {
+  let template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
+  const principles = control.sharedPrinciples;
+  if (principles && principles.length) {
+    const body = 'All agents in this project follow these principles:\n\n' +
+      principles.map((p) => `- ${p}`).join('\n') + '\n';
+    template = template.replace(
+      /<!-- agent-bridge:principles -->[\s\S]*?<!-- agent-bridge:principles-end -->/,
+      `<!-- agent-bridge:principles -->\n${body}<!-- agent-bridge:principles-end -->`
+    );
+  }
+  const agents = control.agents || {};
+  const roles = Object.entries(agents)
+    .filter(([, cfg]) => cfg.role)
+    .map(([name, cfg]) => `### ${name}\n- ${cfg.role}`)
+    .join('\n\n');
+  if (roles) {
+    template = template.replace(
+      /<!-- agent-bridge:roles -->[\s\S]*?<!-- agent-bridge:roles-end -->/,
+      `<!-- agent-bridge:roles -->\n${roles}\n<!-- agent-bridge:roles-end -->`
+    );
+  }
+  return template;
+}
+
 async function commandInstallRules(args) {
   const target = path.join(runtime.projectRoot, '.agent-bridge', 'AGENT_BRIDGE.md');
+  const control = await readControl(runtime.controlPath);
+  const rendered = await renderBridgeRules(control);
   if (existsSync(target) && !args.includes('--force')) {
     console.log(`rules=${target} (existing)`);
   } else {
-    const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
-    await writeFile(target, template);
+    await writeFile(target, rendered);
     console.log(`rules=${target}`);
   }
-  if (args.includes('--link-agent-docs')) await linkAgentDocs(args);
+  if (args.includes('--link-agent-docs')) await linkAgentDocs(args, control);
 }
 
-async function linkAgentDocs(args) {
+async function linkAgentDocs(args, control) {
   const docs = ['AGENTS.md', 'CLAUDE.md'];
   if (args.includes('--include-windsurf')) {
     docs.push(path.join('.windsurf', 'rules', 'agent-bridge.md'));
     if (existsSync(path.join(runtime.projectRoot, '.windsurfrules'))) docs.push('.windsurfrules');
   }
-  const template = await readFile(path.join(import.meta.dirname, 'templates', 'AGENT_BRIDGE.md'), 'utf8');
-  const block = `<!-- agent-bridge:start -->\n${template}\n<!-- agent-bridge:end -->\n`;
+  const resolvedControl = control || await readControl(runtime.controlPath);
+  const rendered = await renderBridgeRules(resolvedControl);
+  const block = `<!-- agent-bridge:start -->\n${rendered}\n<!-- agent-bridge:end -->\n`;
   for (const relativePath of docs) {
     const target = path.join(runtime.projectRoot, relativePath);
     await writeMarkedBlock(target, block);
@@ -343,13 +370,35 @@ async function commandInteractiveSetup(args) {
     const projectRoot = projectAnswer.trim() || defaultProjectRoot;
 
     const agentArgs = [];
+    const agentRoles = {};
     while (true) {
       const agent = (await ask('Agent name (empty to finish): ')).trim();
       if (!agent) break;
       const targetInput = (await ask(`tmux target for ${agent} (session or tmux:target): `)).trim();
       if (!targetInput) throw new Error(`tmux target is required for ${agent}`);
       const target = targetInput === 'noop' || targetInput.startsWith('tmux:') ? targetInput : `tmux:${targetInput}`;
+      const roleInput = (await ask(`Role description for ${agent} (optional, Enter to skip): `)).trim();
+      if (roleInput) agentRoles[agent] = roleInput;
       agentArgs.push('--agent', `${agent}=${target}`);
+    }
+
+    const presetPrinciples = [
+      '对抗式审查：完成后主动找破口，不只复述方案为什么对',
+      '第一性原理：复杂问题先问最底层事实和不变量，不按既有代码类比修补',
+      'TDD / 测试先行',
+      '不 over-engineering',
+      '最小改动原则'
+    ];
+    output.write('Shared principles (comma-separated numbers, or type your own, Enter to skip):\n');
+    presetPrinciples.forEach((p, i) => output.write(`  ${i + 1}. ${p}\n`));
+    const principlesInput = (await ask('Select: ')).trim();
+    let sharedPrinciples = [];
+    if (principlesInput) {
+      if (/^\d/.test(principlesInput)) {
+        sharedPrinciples = principlesInput.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= presetPrinciples.length).map((n) => presetPrinciples[n - 1]);
+      } else {
+        sharedPrinciples = principlesInput.split('\n').map((s) => s.trim()).filter(Boolean);
+      }
     }
 
     const portAnswer = (await ask('Console port (auto): ')).trim();
@@ -369,6 +418,19 @@ async function commandInteractiveSetup(args) {
     runtime = await resolveRuntime(nextArgs);
     await ensureBridge(runtime);
     await commandSetup(nextArgs.slice(3));
+    if (Object.keys(agentRoles).length || sharedPrinciples.length) {
+      await updateControl((current) => {
+        const agents = { ...(current.agents || {}) };
+        for (const [name, role] of Object.entries(agentRoles)) {
+          agents[name] = { ...(agents[name] || {}), role };
+        }
+        return { ...current, agents, sharedPrinciples };
+      });
+      const control = await readControl(runtime.controlPath);
+      const rendered = await renderBridgeRules(control);
+      await writeFile(path.join(runtime.projectRoot, '.agent-bridge', 'AGENT_BRIDGE.md'), rendered);
+      if (args.includes('--link-agent-docs')) await linkAgentDocs(args, control);
+    }
     if (startAnswer === 'y' || startAnswer === 'yes') {
       await commandStart([runtime.workspaceName]);
     }
