@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { addBookmarkForPath, buildStateForRoot, parseTmuxPaneLines, removeBookmarkForPath } from './bridge-console.mjs';
+import { addBookmarkForPath, applyControlPatch, buildStateForRoot, parseTmuxPaneLines, removeBookmarkForPath } from './bridge-console.mjs';
 
 test('parseTmuxPaneLines converts panes to bridge targets', () => {
   const panes = parseTmuxPaneLines('codex:0.0\tzsh\t/Users/me/project\nclaude:1.2\tnode\t/tmp/work\n');
@@ -12,6 +12,77 @@ test('parseTmuxPaneLines converts panes to bridge targets', () => {
     { target: 'tmux:codex:0.0', command: 'zsh', path: '/Users/me/project' },
     { target: 'tmux:claude:1.2', command: 'node', path: '/tmp/work' }
   ]);
+});
+
+test('control patch saves stability and loop budget settings', () => {
+  const next = applyControlPatch(
+    { mode: 'manual', maxInflight: 1, inflightTimeoutMs: 300000, maxRetries: 2, maxAutoHopsPerAgent: 10, verifyInject: true },
+    { maxInflight: 3, inflightTimeoutMs: 60000, maxRetries: 5, maxAutoHopsPerAgent: 4, verifyInject: false }
+  );
+
+  assert.equal(next.maxInflight, 3);
+  assert.equal(next.inflightTimeoutMs, 60000);
+  assert.equal(next.maxRetries, 5);
+  assert.equal(next.maxAutoHopsPerAgent, 4);
+  assert.equal(next.verifyInject, false);
+  assert.equal(next.mode, 'manual');
+});
+
+test('control patch rejects out-of-range and non-integer settings', () => {
+  const current = { maxInflight: 2, inflightTimeoutMs: 300000, maxRetries: 2, maxAutoHopsPerAgent: 10 };
+  const next = applyControlPatch(current, {
+    maxInflight: 0,
+    inflightTimeoutMs: 10,
+    maxRetries: -1,
+    maxAutoHopsPerAgent: 'many'
+  });
+
+  assert.deepEqual(next, current);
+});
+
+test('control patch saves agent role and target together', () => {
+  const next = applyControlPatch(
+    { agents: { 'codex-1': { target: 'tmux:old' } } },
+    { agent: 'codex-1', target: 'tmux:new', role: 'Implementation owner' }
+  );
+
+  assert.deepEqual(next.agents['codex-1'], { target: 'tmux:new', role: 'Implementation owner' });
+});
+
+test('control patch ignores an invalid tmux target but keeps the role', () => {
+  const next = applyControlPatch(
+    { agents: { 'codex-1': { target: 'tmux:old' } } },
+    { agent: 'codex-1', target: 'bad-target', role: 'Reviewer' }
+  );
+
+  assert.deepEqual(next.agents['codex-1'], { target: 'tmux:old', role: 'Reviewer' });
+});
+
+test('control patch leaves agents untouched when no agent is named', () => {
+  const current = { agents: { 'codex-1': { target: 'tmux:old' } } };
+  const next = applyControlPatch(current, { role: 'orphan', target: 'tmux:new', injectTemplate: 'x' });
+
+  assert.deepEqual(next.agents, current.agents);
+  assert.equal(next.injectTemplates, undefined);
+});
+
+test('console state exposes the failed directory', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'bridge-console-failed-'));
+  const bridgeDir = path.join(workspace, '.agent-bridge');
+  try {
+    await mkdir(path.join(bridgeDir, 'failed'), { recursive: true });
+    await writeFile(
+      path.join(bridgeDir, 'failed', 'evt_dead.json'),
+      JSON.stringify({ id: 'evt_dead', from: 'claude-1', to: 'codex-1', summary: 'inject failed' }, null, 2)
+    );
+
+    const state = await buildStateForRoot({ bridgeDir, workspaceRoot: workspace });
+
+    assert.equal(state.directories.failed.length, 1);
+    assert.equal(state.directories.failed[0].id, 'evt_dead');
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test('console state includes Codex sessions and bridge bookmarks', async () => {

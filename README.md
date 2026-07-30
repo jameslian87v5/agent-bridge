@@ -363,11 +363,21 @@ The console shows:
 
 - queue grouped by receiving agent
 - review-ready notifications
-- inflight and done events
+- inflight, failed, and done events
 - review and ack files
 - watcher logs
 - configured agents and injection templates
 - detected tmux targets
+
+The console can also edit `control.json` directly:
+
+- **Agent Targets And Injection Templates** sets each agent's tmux target,
+  injection template, and `role` (injected into the template as `{{role}}`)
+- **Stability And Loop Budget** sets `maxInflight`, `inflightTimeoutMs`,
+  `maxRetries`, `maxAutoHopsPerAgent`, and `verifyInject`
+
+Watchers re-read `control.json` on every poll, so saved changes apply without a
+restart. Invalid values are rejected and leave the current setting untouched.
 
 Use the console to approve normal work events. `review_ready` notifications are auto-approved by default because they only ask the receiver to read an existing review.
 

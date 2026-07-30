@@ -93,7 +93,7 @@ export async function buildStateForRoot(options = {}) {
     logs: await tailLog(path.join(activeBridgeDir, 'logs', 'watcher.log'), 80)
   };
 
-  for (const dir of ['queue', 'inflight', 'done', 'acks']) {
+  for (const dir of ['queue', 'inflight', 'done', 'acks', 'failed']) {
     const names = await listFiles(dir, '.json', activeBridgeDir);
     state.directories[dir] = await Promise.all(names.map(async (name) => ({
       name,
@@ -358,6 +358,41 @@ async function removeBookmark(label) {
   return removeBookmarkForPath(path.join(runtime.bridgeDir, 'session-bookmarks.json'), label);
 }
 
+export function applyControlPatch(current, body = {}) {
+  const boundedInt = (value, min) => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= min ? parsed : undefined;
+  };
+  const maxInflight = boundedInt(body.maxInflight, 1);
+  const inflightTimeoutMs = boundedInt(body.inflightTimeoutMs, 1000);
+  const maxRetries = boundedInt(body.maxRetries, 0);
+  const maxAutoHopsPerAgent = boundedInt(body.maxAutoHopsPerAgent, 1);
+  const agent = typeof body.agent === 'string' ? body.agent : null;
+  const agentPatch = {};
+  if (agent && typeof body.target === 'string' && (body.target === 'noop' || body.target.startsWith('tmux:'))) {
+    agentPatch.target = body.target;
+  }
+  if (agent && typeof body.role === 'string') {
+    agentPatch.role = body.role;
+  }
+  return {
+    ...current,
+    ...(typeof body.paused === 'boolean' ? { paused: body.paused } : {}),
+    ...(body.mode === 'manual' || body.mode === 'auto' ? { mode: body.mode } : {}),
+    ...(maxInflight !== undefined ? { maxInflight } : {}),
+    ...(inflightTimeoutMs !== undefined ? { inflightTimeoutMs } : {}),
+    ...(maxRetries !== undefined ? { maxRetries } : {}),
+    ...(maxAutoHopsPerAgent !== undefined ? { maxAutoHopsPerAgent } : {}),
+    ...(typeof body.verifyInject === 'boolean' ? { verifyInject: body.verifyInject } : {}),
+    ...(Object.keys(agentPatch).length
+      ? { agents: { ...(current.agents || {}), [agent]: { ...((current.agents || {})[agent] || {}), ...agentPatch } } }
+      : {}),
+    ...(agent && typeof body.injectTemplate === 'string'
+      ? { injectTemplates: { ...(current.injectTemplates || {}), [agent]: body.injectTemplate } }
+      : {})
+  };
+}
+
 async function handleApi(req, res, url) {
   const pathname = url.pathname;
   if (req.method === 'GET' && pathname === '/api/state') {
@@ -366,17 +401,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && pathname === '/api/control') {
     const body = await readRequestJson(req);
-    const next = await updateControl((current) => ({
-      ...current,
-      ...(typeof body.paused === 'boolean' ? { paused: body.paused } : {}),
-      ...(body.mode === 'manual' || body.mode === 'auto' ? { mode: body.mode } : {}),
-      ...(typeof body.agent === 'string' && typeof body.target === 'string' && (body.target === 'noop' || body.target.startsWith('tmux:'))
-        ? { agents: { ...(current.agents || {}), [body.agent]: { ...((current.agents || {})[body.agent] || {}), target: body.target } } }
-        : {}),
-      ...(typeof body.agent === 'string' && typeof body.injectTemplate === 'string'
-        ? { injectTemplates: { ...(current.injectTemplates || {}), [body.agent]: body.injectTemplate } }
-        : {})
-    }));
+    const next = await updateControl((current) => applyControlPatch(current, body));
     return sendJson(res, 200, next);
   }
 
@@ -566,6 +591,28 @@ const html = String.raw`<!doctype html>
       align-items: center;
       flex-wrap: wrap;
     }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .settings-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .settings-grid label.checkbox {
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      align-self: end;
+      padding-bottom: 8px;
+    }
+    .settings-grid label.checkbox input {
+      width: auto;
+    }
     .agent-list {
       display: grid;
       grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr);
@@ -717,11 +764,33 @@ const html = String.raw`<!doctype html>
         <button onclick="resetTemplate()">Reset Default</button>
         <span id="templateStatus" class="sub"></span>
       </div>
+      <div class="template-actions">
+        <input id="roleInput" spellcheck="false" placeholder="Role description, injected as {{role}}" />
+        <button onclick="saveRole()">Save Role</button>
+      </div>
+    </section>
+    <section class="template-editor">
+      <h2>
+        Stability And Loop Budget
+        <span class="sub">written to control.json; watchers pick changes up on the next poll</span>
+      </h2>
+      <div class="settings-grid">
+        <label>Max Inflight<input id="maxInflight" type="number" min="1" /></label>
+        <label>Inflight Timeout (s)<input id="inflightTimeoutSec" type="number" min="1" /></label>
+        <label>Max Retries<input id="maxRetries" type="number" min="0" /></label>
+        <label>Auto Hops Per Agent<input id="maxAutoHopsPerAgent" type="number" min="1" /></label>
+        <label class="checkbox"><input id="verifyInject" type="checkbox" />Verify Inject</label>
+      </div>
+      <div class="template-actions">
+        <button class="primary" onclick="saveSettings()">Save Settings</button>
+        <span id="settingsStatus" class="sub"></span>
+      </div>
     </section>
     <div class="note">Work Queue creates work for another agent. Review Ready is a notification that an existing review file is ready to read. Ack closes handled work. Approve is only needed when a configured watcher should inject a queue event into an agent session.</div>
     <div class="grid">
       <div id="queueGroups" class="full grid"></div>
       <section class="section" id="inflight"></section>
+      <section class="section" id="failed"></section>
       <section class="section" id="done"></section>
       <section class="section" id="acks"></section>
       <section class="section full" id="codexSessions"></section>
@@ -786,6 +855,42 @@ const html = String.raw`<!doctype html>
       post('/api/control', { agent, target: value })
         .then(() => setTemplateStatus('Target saved'))
         .catch(alertError);
+    }
+
+    function saveRole() {
+      const agent = selectedAgentName();
+      const role = document.getElementById('roleInput').value.trim();
+      post('/api/control', { agent, role })
+        .then(() => setTemplateStatus(role ? 'Role saved' : 'Role cleared'))
+        .catch(alertError);
+    }
+
+    function saveSettings() {
+      const intValue = (id) => {
+        const raw = document.getElementById(id).value.trim();
+        if (!raw) return undefined;
+        const parsed = Number(raw);
+        return Number.isInteger(parsed) ? parsed : undefined;
+      };
+      const timeoutSec = intValue('inflightTimeoutSec');
+      const body = {
+        maxInflight: intValue('maxInflight'),
+        maxRetries: intValue('maxRetries'),
+        maxAutoHopsPerAgent: intValue('maxAutoHopsPerAgent'),
+        verifyInject: document.getElementById('verifyInject').checked
+      };
+      if (timeoutSec !== undefined) body.inflightTimeoutMs = timeoutSec * 1000;
+      post('/api/control', body)
+        .then(() => setSettingsStatus('Saved'))
+        .catch(alertError);
+    }
+
+    function setSettingsStatus(text) {
+      const node = document.getElementById('settingsStatus');
+      node.textContent = text;
+      if (text) setTimeout(() => {
+        if (node.textContent === text) node.textContent = '';
+      }, 2500);
     }
 
     function resetTemplate() {
@@ -890,9 +995,15 @@ const html = String.raw`<!doctype html>
       if (document.activeElement !== targetInput) {
         targetInput.value = ((control.agents || {})[currentAgent] || {}).target || '';
       }
+      const roleInput = document.getElementById('roleInput');
+      if (document.activeElement !== roleInput) {
+        roleInput.value = ((control.agents || {})[currentAgent] || {}).role || '';
+      }
+      renderSettings(control);
 
       renderQueue();
       renderDirectory('inflight', { actions: ['ack'] });
+      renderDirectory('failed', { actions: [] });
       renderDirectory('done', { actions: [] });
       renderDirectory('acks', { actions: [] });
       renderCodexSessions();
@@ -903,6 +1014,19 @@ const html = String.raw`<!doctype html>
         const details = document.querySelector('details[data-key="' + cssEscape(key) + '"]');
         if (details) details.open = true;
       }
+    }
+
+    function renderSettings(control) {
+      const setValue = (id, value) => {
+        const node = document.getElementById(id);
+        if (document.activeElement !== node) node.value = value;
+      };
+      setValue('maxInflight', control.maxInflight ?? 1);
+      setValue('inflightTimeoutSec', Math.round((control.inflightTimeoutMs ?? 300000) / 1000));
+      setValue('maxRetries', control.maxRetries ?? 2);
+      setValue('maxAutoHopsPerAgent', control.maxAutoHopsPerAgent ?? 10);
+      const verify = document.getElementById('verifyInject');
+      if (document.activeElement !== verify) verify.checked = control.verifyInject !== false;
     }
 
     function renderAgentSelect(agents) {
