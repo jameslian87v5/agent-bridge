@@ -299,6 +299,20 @@ async function checkInflightTimeout() {
   }
 }
 
+async function resetInflightTimers() {
+  const inflight = await listJsonNames('inflight');
+  let refreshed = 0;
+  for (const name of inflight) {
+    const eventPath = path.join(runtime.bridgeDir, 'inflight', name);
+    const event = await readJson(eventPath, {});
+    if ((event.to || 'codex') !== agentName) continue;
+    if (!event.injectedAt) continue;
+    await writeJson(eventPath, { ...event, injectedAt: new Date().toISOString() });
+    refreshed += 1;
+  }
+  if (refreshed) await appendLog(`restart: refreshed timeout window for ${refreshed} inflight event(s)`);
+}
+
 async function tick() {
   await processAcks();
   await checkInflightTimeout();
@@ -318,6 +332,7 @@ async function main() {
   console.log(`agent bridge watcher running: ${runtime.bridgeDir}`);
   console.log(`workspace=${runtime.workspaceName} agent=${agentName} poll=${pollMs}ms`);
   await appendLog('watcher started');
+  await resetInflightTimers();
 
   while (true) {
     try {

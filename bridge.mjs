@@ -517,6 +517,16 @@ async function commandStart(args) {
   console.log(`  console=pid:${run.console?.pid} running:${run.console?.running}`);
 }
 
+async function commandRestart(args) {
+  const projectId = await resolveRegisteredProjectId(args[0], 'restart');
+  await stopProject(projectId);
+  const run = await startProject(projectId, { port: Number(readArg(args, '--port')) || undefined });
+  console.log(`restarted ${projectId}`);
+  console.log(`  console=http://127.0.0.1:${run.consolePort}`);
+  console.log(`  watchAll=pid:${run.watchAll?.pid} running:${run.watchAll?.running}`);
+  console.log(`  console=pid:${run.console?.pid} running:${run.console?.running}`);
+}
+
 async function commandStop(args) {
   const projectId = await resolveRegisteredProjectId(args[0], 'stop');
   const run = await stopProject(projectId);
@@ -527,7 +537,7 @@ async function main() {
   const rawArgs = process.argv.slice(2);
   const [command, ...args] = withoutWorkspaceArgs(rawArgs);
   runtime = await resolveRuntime(rawArgs);
-  const isRegistryOnlyCommand = command === 'projects' || command === 'project' || command === 'start' || command === 'stop' || (command === 'status' && args[0]);
+  const isRegistryOnlyCommand = command === 'projects' || command === 'project' || command === 'start' || command === 'stop' || command === 'restart' || (command === 'status' && args[0]);
   if (!isRegistryOnlyCommand) await ensureBridge(runtime);
 
   switch (command) {
@@ -554,6 +564,9 @@ async function main() {
       break;
     case 'start':
       await commandStart(args);
+      break;
+    case 'restart':
+      await commandRestart(args);
       break;
     case 'stop':
       await commandStop(args);

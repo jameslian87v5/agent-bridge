@@ -272,8 +272,15 @@ processes from the project directory:
 cd /path/to/your-project
 agent-bridge start
 agent-bridge status --run
+agent-bridge restart
 agent-bridge stop
 ```
+
+`restart` is `stop` + `start`. All state lives on disk (`control.json` and the
+event directories), so nothing is lost. Inflight events that were already
+injected get a fresh timeout window instead of being re-injected immediately;
+events with no `injectedAt` (watcher crashed before delivery was confirmed) are
+re-injected on the first tick.
 
 Use `status --run` for the current project. Use `projects --status` when you
 want the overview for every registered project.
@@ -283,6 +290,7 @@ You can also control a project from anywhere by passing its project id:
 ```bash
 agent-bridge start <project-id>
 agent-bridge status <project-id>
+agent-bridge restart <project-id>
 agent-bridge stop <project-id>
 ```
 
