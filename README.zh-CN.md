@@ -1,4 +1,4 @@
-# Agent Bridge
+# Agent Bridge — Real Agent Loop Engineering
 
 让 Codex、Claude Code、OpenCode 等多个 CLI Agent 在**同一份持久化上下文**中协作——历史不重述、状态不丢失。
 
