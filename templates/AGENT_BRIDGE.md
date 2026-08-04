@@ -16,6 +16,26 @@ artifacts/  long-form request context
 logs/       watcher logs
 ```
 
+## Event Lifecycle
+
+```text
+Agent A                          Agent B
+  │                                │
+  ├─ send queue event ──────────▶  │
+  │                                ├─ read event
+  │                                ├─ do work
+  │                                ├─ write review
+  │                                ├─ write ack
+  │  ◀── review_ready (auto) ──────┤
+  ├─ read review                   │
+  ├─ ack review_ready              │
+  │                                │
+  │  if more work needed:          │
+  ├─ send NEW queue event ──────▶  │
+  │    (replyTo + threadId)        │
+  │                                │
+```
+
 ## Receiver Contract
 
 When you receive a bridge event:
@@ -30,17 +50,42 @@ When you receive a bridge event:
 
 Keep reviews concise and actionable.
 
+## Follow-Up Work (Creating New Events)
+
+If the other agent needs to act after your review, **do not** just mention it
+in the review text. Explicitly create a new event:
+
+```bash
+node agent-bridge/bridge.mjs send \
+  --to <target-agent> \
+  --reply-to <original-event-id> \
+  --thread-id <thread-id> \
+  --subject "what needs to be done" \
+  --body "detailed instructions"
+```
+
+This puts the event in the target agent's `queue/` directory. The watcher
+will inject it into their terminal.
+
 ## Review Cycle (One-Shot)
 
 The review cycle is **one-shot**: receiver writes review → watcher auto-notifies
 sender via `review_ready` event → sender reads review → done.
 
 `review_ready` events do **not** trigger another `review_ready`. The cycle stops
-after one round. If you need further action, create a **new** `queue/*.json`
-event with `replyTo` and `threadId`.
+after one round. If you need further action, use the `send` command above to
+create a **new** `queue/*.json` event with `replyTo` and `threadId`.
 
-Do not hide new work inside a review. Explicitly queue a new event if another
-agent must act.
+Do not hide new work inside a review. Always use `send` for follow-ups.
+
+## Anti-Ping-Pong Rules
+
+- Each event is one round of work. Do not reply to a review with another
+  review. Send a new event instead.
+- In `auto` mode, each agent has a hop budget (`maxAutoHopsPerAgent`, default
+  10). When exhausted, events stop auto-injecting and wait for manual approval.
+- If you see the same thread bouncing back and forth, pause and escalate to
+  the human instead of continuing the loop.
 
 ## Shared Principles
 

@@ -1,67 +1,67 @@
 # Agent Bridge
 
-Agent Bridge is a local, file-based bridge for coordinating multiple CLI agents such as Codex, Claude Code, and Cascade.
+[中文说明](./README.zh-CN.md)
 
-It is designed to be installed once and used from many projects. The tool code lives in this repo; each project keeps its own bridge data under that project's `.agent-bridge/` directory.
+A local, file-based bridge that lets multiple CLI agents (Codex, Claude Code, OpenCode…) send work to each other through tmux terminals.
 
-There is no database, cloud service, or central queue.
+No database, no cloud, no central server. Just JSON files, tmux, and a small web console.
 
 ```text
-/Users/jameslian/Work/projects/agent-bridge/   # tool code
-/path/to/your-project/.agent-bridge/           # that project's runtime data
+agent-bridge/                        # this repo: the tool, installed once
+/path/to/your-project/.agent-bridge/ # each project: its own runtime data
 ```
 
-## What It Does
-
-Agent Bridge gives agents a shared local protocol:
+## How It Works (60 seconds)
 
 ```text
-queue/      work waiting for an agent
-inflight/   work already handed to an agent
-reviews/    result or review markdown from the receiver
-acks/       JSON marker that the event is handled
-done/       completed or rejected event JSON
-artifacts/  long request context
+Agent A                          Agent B
+  │                                │
+  ├─ send queue event ──────────▶  │ watcher injects into B's tmux
+  │                                ├─ B reads event, does the work
+  │                                ├─ B writes review + ack
+  │  ◀── review_ready (auto) ──────┤ watcher notifies A
+  ├─ A reads review, acks          │
+  │                                │
+  │  more work? send a NEW event ─▶│ (never reply review-to-review)
+```
+
+The whole state lives in directories you can inspect:
+
+```text
+queue/      events waiting for an agent
+inflight/   events injected, waiting for ack
+reviews/    review markdown written by the receiver
+acks/       JSON marker that closes the event
+done/       finished events
+failed/     events that could not be delivered
+artifacts/  long-form request context
 logs/       watcher logs
 ```
 
-The important rule:
+Three rules:
 
-```text
-queue creates work.
-review records results.
-ack closes the current event.
-```
+- **queue creates work** — if another agent must act, send a new queue event
+- **review records results** — reviews never trigger more reviews
+- **ack closes the event** — watcher moves inflight → done
 
-If a review asks another agent to continue, create a new queue event. Do not hide new work only inside a review file.
+## Install
 
-## Install For Local Use
-
-From the Agent Bridge repo:
+From this repo:
 
 ```bash
-cd /Users/jameslian/Work/projects/agent-bridge
+cd /path/to/agent-bridge
 npm link
 ```
 
-After this, these commands should be available from any project:
+Now `agent-bridge`, `agent-bridge-console`, `agent-bridge-watch`, and
+`agent-bridge-watch-all` work from any project. Or skip `npm link` and call the
+scripts directly:
 
 ```bash
-agent-bridge
-agent-bridge-console
-agent-bridge-watch
-agent-bridge-watch-all
+node /path/to/agent-bridge/bridge.mjs status
 ```
 
-If you do not want to use `npm link`, run scripts directly:
-
-```bash
-node /Users/jameslian/Work/projects/agent-bridge/bridge.mjs status
-node /Users/jameslian/Work/projects/agent-bridge/bridge-console.mjs
-node /Users/jameslian/Work/projects/agent-bridge/bridge-watch-all.mjs
-```
-
-## Add Agent Bridge To A New Project
+## Set Up A Project
 
 Shortest path:
 
@@ -69,532 +69,223 @@ Shortest path:
 cd /path/to/your-project
 agent-bridge setup --link-agent-docs --include-windsurf
 agent-bridge start
-agent-bridge projects --status
 ```
 
-`agent-bridge status --run` shows the current project's background processes.
-`agent-bridge projects --status` shows every registered project's background
-processes and console URL.
+`setup` (interactive or with flags) does:
 
-Detailed setup:
+- creates `agent-bridge.workspace.json` and `.agent-bridge/workspaces/<project-id>/`
+- installs `.agent-bridge/AGENT_BRIDGE.md` — the rules every agent reads
+- links those rules into `AGENTS.md` / `CLAUDE.md` / Windsurf rules
+  (marker block `agent-bridge:start` … `agent-bridge:end`, safe to re-run)
+- writes agent → tmux target mappings into `control.json`
+- registers the project in `~/.agent-bridge/projects.json`
 
-```bash
-cd /path/to/your-project
-```
-
-Initialize bridge runtime and project config:
-
-```bash
-agent-bridge init
-```
-
-This creates:
-
-```text
-agent-bridge.workspace.json
-.agent-bridge/workspaces/<project-id>/
-```
-
-By default, the project id is `basename-hash6`, for example
-`backend-a1b2c3`. The hash comes from the absolute project path, so two
-different directories with the same basename do not overwrite each other in the
-global registry.
-
-Install project-local agent instructions:
-
-```bash
-agent-bridge install-rules
-```
-
-This creates:
-
-```text
-.agent-bridge/AGENT_BRIDGE.md
-```
-
-To also link those rules from agent-specific instruction files, run:
-
-```bash
-agent-bridge install-rules --link-agent-docs --include-windsurf
-```
-
-This creates or updates:
-
-```text
-AGENTS.md
-CLAUDE.md
-.windsurf/rules/agent-bridge.md
-```
-
-If `.windsurfrules` already exists, it is updated too. The inserted block is
-wrapped in `agent-bridge:start` / `agent-bridge:end` markers, so the command is
-safe to run repeatedly.
-
-Check the setup:
-
-```bash
-agent-bridge status
-```
-
-Or configure a project from anywhere with one command:
+One-shot, non-interactive:
 
 ```bash
 agent-bridge --project /path/to/your-project setup \
   --agent codex-1=tmux:codex-1 \
-  --agent claude-main=tmux:claude-main \
-  --agent cascade-1=tmux:cascade-1 \
-  --port auto \
-  --link-agent-docs \
-  --include-windsurf
+  --agent claude-1=tmux:claude-1 \
+  --port auto --link-agent-docs --include-windsurf
 ```
 
-This does the same project setup steps:
-
-- creates `/path/to/your-project/agent-bridge.workspace.json`
-- creates `/path/to/your-project/.agent-bridge/workspaces/<project-id>/`
-- installs `/path/to/your-project/.agent-bridge/AGENT_BRIDGE.md`
-- optionally links the bridge rules into `AGENTS.md`, `CLAUDE.md`, and Windsurf rules
-- writes the configured agent to tmux target mappings
-- registers the project in `~/.agent-bridge/projects.json`
-- assigns a console port, starting from 4088
-
-You can also run an interactive setup wizard:
+Project registry commands:
 
 ```bash
-agent-bridge setup
+agent-bridge projects            # list registered projects
+agent-bridge projects --status   # + run state and console URLs
+agent-bridge project remove <id> # unregister
 ```
 
-It asks for:
+## Prepare Agent Terminals
 
-```text
-Project path, default current directory
-Agent names
-tmux target names
-Console port, default auto
-Whether to start watchers and console now
-```
-
-List registered projects:
+One tmux session per logical agent. The session name must match the target in
+`control.json` exactly — including spelling:
 
 ```bash
-agent-bridge projects
+tmux new -s codex-1      # inside: cd your-project && codex
+tmux new -s claude-1     # inside: cd your-project && claude
 ```
 
-List registered projects with run state and console URLs:
+If injection fails with `tmux session not found`, run `tmux ls` and compare the
+names with `agent-bridge status` output. Rename the tmux session or update the
+binding:
 
 ```bash
-agent-bridge projects --status
+agent-bridge target --agent codex-1 --target tmux:codex-1
 ```
 
-Remove a registered project:
+## Run It
 
 ```bash
-agent-bridge project remove <project-id>
-```
-
-## Start Agent Terminals
-
-Use one tmux session or pane per logical agent.
-
-Example with Codex and Claude Code:
-
-```bash
-tmux new -s codex
-```
-
-Inside that tmux session:
-
-```bash
-cd /path/to/your-project
-codex
-```
-
-Create another session:
-
-```bash
-tmux new -s claude
-```
-
-Inside it:
-
-```bash
-cd /path/to/your-project
-claude
-```
-
-You can use more logical agents:
-
-```text
-codex-1
-codex-reviewer
-claude-main
-claude-fixer
-cascade-1
-```
-
-The logical agent name is the bridge route name. It does not have to equal the CLI product name.
-
-## Bind Agents To tmux Targets
-
-From the project root:
-
-```bash
-agent-bridge target --agent codex --target tmux:codex
-agent-bridge target --agent claude-code --target tmux:claude
-```
-
-For multiple agents:
-
-```bash
-agent-bridge target --agent codex-reviewer --target tmux:codex-reviewer
-agent-bridge target --agent claude-fixer --target tmux:claude-fixer
-agent-bridge target --agent cascade-1 --target tmux:cascade
-```
-
-Check bindings:
-
-```bash
-agent-bridge status
-```
-
-You should see something like:
-
-```text
-agents=codex=tmux:codex, claude-code=tmux:claude
-```
-
-## Start Watchers
-
-For registered projects, start the console and all watchers as background
-processes from the project directory:
-
-```bash
-cd /path/to/your-project
-agent-bridge start
-agent-bridge status --run
-agent-bridge restart
+agent-bridge start            # console + watchers in background
+agent-bridge status --run     # check processes
+agent-bridge restart          # stop + start (see below)
 agent-bridge stop
 ```
 
-`restart` is `stop` + `start`. All state lives on disk (`control.json` and the
-event directories), so nothing is lost. Inflight events that were already
-injected get a fresh timeout window instead of being re-injected immediately;
-events with no `injectedAt` (watcher crashed before delivery was confirmed) are
-re-injected on the first tick.
+`restart` does three things:
 
-Use `status --run` for the current project. Use `projects --status` when you
-want the overview for every registered project.
+1. stops watchers and console
+2. **re-renders the rule files** (`AGENT_BRIDGE.md`, `AGENTS.md`, `CLAUDE.md`)
+   from the latest `control.json` — role and principles edits apply here
+3. starts everything again; inflight events get a fresh timeout window instead
+   of being re-injected immediately
 
-You can also control a project from anywhere by passing its project id:
+All commands also work from anywhere with a project id:
+`agent-bridge restart <project-id>`.
 
-```bash
-agent-bridge start <project-id>
-agent-bridge status <project-id>
-agent-bridge restart <project-id>
-agent-bridge stop <project-id>
-```
+Pid files live in `~/.agent-bridge/runs/`, logs in `~/.agent-bridge/logs/<id>/`.
 
-`start` writes pid files under:
-
-```text
-~/.agent-bridge/runs/<project-id>.json
-```
-
-and logs under:
-
-```text
-~/.agent-bridge/logs/<project-id>/
-```
-
-For foreground debugging, start all configured watchers with one command:
-
-```bash
-agent-bridge-watch-all
-```
-
-A watcher handles events whose `to` field matches its agent name.
-
-If you prefer manual control, start one watcher per receiving agent:
-
-```bash
-agent-bridge-watch --agent codex
-agent-bridge-watch --agent claude-code
-```
-
-Rule of thumb:
-
-```text
-one logical receiving agent = one watcher
-```
-
-So if you configure `codex-1`, `codex-2`, and `claude-code`, `watch-all` starts watchers for all three.
-
-## Open Console
-
-From the project root:
-
-```bash
-agent-bridge-console
-```
-
-Open:
-
-```text
-http://127.0.0.1:4088
-```
-
-For multiple projects, run one console per project on a different port:
-
-```bash
-agent-bridge-console --project /path/to/project-a --port 4088
-agent-bridge-console --project /path/to/project-b --port 4089
-agent-bridge-console --project /path/to/project-c --port 4090
-```
-
-Then open:
-
-```text
-http://127.0.0.1:4088  # project-a
-http://127.0.0.1:4089  # project-b
-http://127.0.0.1:4090  # project-c
-```
-
-The console shows:
-
-- queue grouped by receiving agent
-- review-ready notifications
-- inflight, failed, and done events
-- review and ack files
-- watcher logs
-- configured agents and injection templates
-- detected tmux targets
-
-The console can also edit `control.json` directly:
-
-- **Agent Targets And Injection Templates** sets each agent's tmux target,
-  injection template, and `role` (injected into the template as `{{role}}`)
-- **Stability And Loop Budget** sets `maxInflight`, `inflightTimeoutMs`,
-  `maxRetries`, `maxAutoHopsPerAgent`, and `verifyInject`
-
-Watchers re-read `control.json` on every poll, so saved changes apply without a
-restart. Invalid values are rejected and leave the current setting untouched.
-
-Use the console to approve normal work events. `review_ready` notifications are auto-approved by default because they only ask the receiver to read an existing review.
-
-## Send Work To Another Agent
-
-Send a review request from Codex to Claude Code:
+## Send Work
 
 ```bash
 agent-bridge send \
-  --from codex \
-  --to claude-code \
-  --action review \
+  --from codex-1 --to claude-1 \
   --subject "Review current diff" \
-  --body "Please inspect the current diff and write review + ack."
+  --body "Please inspect the diff and write review + ack."
 ```
 
-In manual mode:
+For long requests, write a markdown file first and use `--body-file`. For work
+that continues a thread, add `--reply-to <event-id> --thread-id <name>` so the
+hop budget is inherited. For isolated code edits, add `--worktree` (details in
+`AGENT_BRIDGE.md`).
 
-1. Open console.
-2. Find `Queue To claude-code`.
-3. Click `Approve`.
-4. The `claude-code` watcher injects the request into its tmux target.
-
-Send work back from Claude Code to Codex:
+## Modes: Manual vs Auto
 
 ```bash
-agent-bridge send \
-  --from claude-code \
-  --to codex \
-  --action review \
-  --subject "Review implementation" \
-  --body "Please review my changes and write review + ack."
+agent-bridge mode manual   # default: every event needs an approve
+agent-bridge mode auto     # events inject immediately
+agent-bridge approve <event_id>
+agent-bridge reject <event_id>
+agent-bridge pause / resume
 ```
 
-## Use Artifact Files For Longer Requests
+`review_ready` notifications are auto-approved in both modes (they only ask the
+sender to read an existing review).
 
-For non-trivial requests, write a Markdown artifact first:
+### Loop Budget (auto mode)
+
+Auto mode could ping-pong forever, so every event carries an `autoHops` counter
+per agent:
+
+```json
+{ "replyTo": "evt_1", "autoHops": { "codex-1": 4, "claude-1": 3 } }
+```
+
+- the counter increments each time that agent's watcher injects the event
+- `--reply-to` and `review_ready` events inherit the counter
+- at `maxAutoHopsPerAgent` (default **10**) the watcher stops auto-injecting
+  and leaves the event in `queue/`
+- `agent-bridge approve <event_id>` overrides the budget
+- `send` without `--reply-to` starts a fresh chain
+- timeout retries do not consume budget
+
+## Stability: Timeouts, Retries, Failed
+
+Every injected event records `injectedAt` and `retryCount`:
+
+- **timeout** (`inflightTimeoutMs`, default **5 min**) without an ack →
+  re-inject with `retryCount + 1`
+- **already has a review** → close it to `done/`
+- **tmux session dead** or **retries exhausted** (`maxRetries`, default **2**) →
+  move to `failed/`
+- `maxInflight` (default 1) limits how many events an agent processes at once
+
+Events in `failed/` are visible in the console. To retry one, move the JSON
+back to `queue/` (or resend).
+
+## Console
+
+Started by `agent-bridge start`, or manually:
 
 ```bash
-mkdir -p .agent-bridge/workspaces/$(basename "$PWD")/artifacts
+agent-bridge-console --port 4088   # open http://127.0.0.1:4088
 ```
 
-Create a request file:
+One console per project; ports auto-allocate from 4088.
+
+The console shows queue/inflight/failed/done/reviews/logs and lets you edit
+`control.json` directly:
+
+- **Agent Targets And Injection Templates** — tmux target, injection template,
+  and `role` per agent (injected into templates as `{{role}}`)
+- **Stability And Loop Budget** — `maxInflight`, `inflightTimeoutMs`,
+  `maxRetries`, `maxAutoHopsPerAgent`, `verifyInject`
+
+Watchers re-read `control.json` on every poll — settings apply without restart.
+**Exception:** role and principles edits only reach `AGENT_BRIDGE.md` /
+`AGENTS.md` / `CLAUDE.md` after `agent-bridge restart`.
+
+## Injection Templates
+
+Each agent gets its instructions from a template with placeholders:
 
 ```text
-.agent-bridge/workspaces/<project-name>/artifacts/evt_feature_review.request.md
+Bridge event {{id}} is ready.
+
+You are {{agentName}} in the bridge receiver role.{{role}}
+Read {{eventPath}}.
+...
 ```
 
-Then send:
+There is **one built-in default template** — no per-agent setup needed. A
+template saved for a specific agent in the console overrides the default.
+`{{agentName}}` and `{{role}}` are filled from `control.json` automatically.
 
-```bash
-agent-bridge send \
-  --from codex \
-  --to claude-code \
-  --action review \
-  --subject "Review feature plan" \
-  --body-file ".agent-bridge/workspaces/<project-name>/artifacts/evt_feature_review.request.md" \
-  --thread-id "feature-plan"
-```
+New projects start with **zero configured agents** — `defaultControl` no longer
+pre-creates `codex`/`claude-code`. Agents only exist if you add them (setup,
+`target` command, or console).
 
 ## Receiver Contract
 
-When an agent receives an event, it must write both files before considering the event handled:
+An agent that receives an event must write both:
 
 ```text
-.agent-bridge/workspaces/<project-name>/reviews/<event_id>.review.md
-.agent-bridge/workspaces/<project-name>/acks/<event_id>.json
+reviews/<event_id>.review.md
+acks/<event_id>.json
 ```
 
 Minimal ack:
 
 ```json
-{
-  "id": "evt_20260705120000",
-  "status": "handled",
-  "createdAt": "2026-07-05T12:00:00.000Z"
-}
+{ "id": "evt_20260705120000", "status": "handled", "createdAt": "..." }
 ```
 
-After the ack exists, the watcher moves the event from `inflight/` to `done/`.
-
-If a review file also exists, the watcher creates a `review_ready_<event_id>` notification back to the original sender.
-
-## Worktree Requests
-
-For isolated implementation work:
-
-```bash
-agent-bridge send \
-  --from codex \
-  --to claude-code \
-  --action implement \
-  --subject "Implement fix in worktree" \
-  --body "Make this change in isolation." \
-  --worktree \
-  --worktree-name "fix-round-1" \
-  --worktree-base HEAD
-```
-
-The event will include:
-
-```json
-{
-  "worktree": {
-    "required": true,
-    "name": "fix-round-1",
-    "base": "HEAD",
-    "branch": "bridge/fix-round-1",
-    "path": ".agent-bridge/worktrees/fix-round-1"
-  }
-}
-```
-
-The receiving agent creates and enters the worktree before editing code, but still writes review and ack files to the original bridge paths.
-
-## Common Commands
-
-```bash
-agent-bridge status
-agent-bridge pause
-agent-bridge resume
-agent-bridge mode manual
-agent-bridge mode auto
-agent-bridge approve <event_id>
-agent-bridge reject <event_id>
-agent-bridge ack <event_id>
-```
-
-Manual mode is recommended for normal work. Auto mode injects queued work without approval.
-
-### Auto Mode Loop Budget
-
-Auto mode injects without approval, so a reply chain between two agents could
-ping-pong indefinitely. Each event carries an `autoHops` counter keyed by agent:
-
-```json
-{
-  "id": "evt_20260730120000",
-  "replyTo": "evt_20260730115000",
-  "autoHops": { "codex-1": 4, "claude-1": 3 }
-}
-```
-
-The counter increments when the watcher for that agent injects the event, and is
-inherited by any event created with `--reply-to`, plus the `review_ready`
-notifications the watcher generates. Once an agent reaches
-`maxAutoHopsPerAgent` (default 10) in a chain, its watcher stops auto-injecting
-and leaves the event in `queue/`, so a chain costs at most 10 injections per
-agent, 20 hops total.
-
-```json
-{
-  "maxAutoHopsPerAgent": 10
-}
-```
-
-To continue past the budget, approve the event explicitly:
-
-```bash
-agent-bridge approve <event_id>
-```
-
-Sending without `--reply-to` starts a new chain with a fresh budget. Injection
-retries after a timeout do not consume budget; they reuse the same hop.
+Ack present → watcher moves the event to `done/`. Review also present → watcher
+sends a `review_ready` back to the original sender. The full collaboration
+rules (lifecycle, follow-up via `send`, anti-ping-pong) are in the generated
+`.agent-bridge/AGENT_BRIDGE.md`.
 
 ## Troubleshooting
 
-### Console Does Not Show New UI
+- **Event stuck in queue** — check `agent-bridge status`: `to` matches a
+  configured agent, watcher running, event approved (manual mode)
+- **`tmux session not found`** — `tmux ls`, compare spelling with the target,
+  rename session or re-bind with `agent-bridge target`
+- **Event stuck in inflight** — it will time out and retry; after
+  `maxRetries` it lands in `failed/`
+- **Console shows stale UI** — the console does not hot reload;
+  `agent-bridge restart`
+- **Changed roles/principles but agents don't see them** — rule files are only
+  re-rendered on `restart` or `install-rules --force --link-agent-docs`
+- **Watcher swallowed keys / agent in copy-mode** — the watcher exits tmux
+  copy-mode before injecting; if you scrolled in a pane, press `q` or `Esc`
 
-Restart the console process. The console is a Node process and does not hot reload.
-
-```bash
-agent-bridge-console
-```
-
-### Queue Event Does Not Inject
-
-Check:
-
-```bash
-agent-bridge status
-```
-
-Then verify:
-
-- the event `to` matches a configured agent name
-- the target is correct, for example `claude-code=tmux:claude`
-- `agent-bridge-watch-all` or the matching watcher is running
-- in manual mode, the event is approved unless it is `review_ready`
-
-### tmux Injection Fails
-
-List tmux sessions:
-
-```bash
-tmux ls
-```
-
-Then update the binding:
-
-```bash
-agent-bridge target --agent claude-code --target tmux:<session-name>
-```
-
-The console also shows detected tmux targets that you can copy.
-
-### Historical Events Did Not Create review_ready
-
-Only watchers running the current code create `review_ready` notifications. If an old watcher handled the event before this feature existed, manually create a follow-up event or resend a queue notification.
-
-## Versioning
-
-This standalone repo is the versioned tool. Target projects should keep only runtime data and project-local rules:
+## Layout
 
 ```text
-.agent-bridge/
-agent-bridge.workspace.json
+This repo (versioned tool):
+  bridge.mjs            CLI
+  bridge-watch.mjs      per-agent watcher
+  bridge-watch-all.mjs  starts one watcher per configured agent
+  bridge-console.mjs    web console
+  lib/config.mjs        defaults, control.json handling
+  templates/AGENT_BRIDGE.md  agent rules template
+
+Your project (runtime data only):
+  agent-bridge.workspace.json
+  .agent-bridge/
 ```
 
-Do not copy tool source files into every project.
+Do not copy tool source into projects.
