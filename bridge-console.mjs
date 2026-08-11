@@ -292,6 +292,21 @@ async function tailLog(filePath, maxLines) {
   return text.split('\n').slice(-maxLines).join('\n').trim();
 }
 
+async function requeueEvent(id) {
+  const cleanId = cleanEventId(id);
+  const name = eventFileName(cleanId);
+  const failedPath = path.join(runtime.bridgeDir, 'failed', name);
+  const queuePath = path.join(runtime.bridgeDir, 'queue', name);
+  if (!existsSync(failedPath)) {
+    throw Object.assign(new Error(`failed event not found: ${name}`), { status: 404 });
+  }
+  const event = await readJson(failedPath, {});
+  event.retryCount = 0;
+  delete event.injectedAt;
+  await writeJson(queuePath, event);
+  await rm(failedPath, { force: true });
+}
+
 async function approveEvent(id) {
   const cleanId = cleanEventId(id);
   return updateControl((current) => {
@@ -432,13 +447,14 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, removed: total });
   }
 
-  const actionMatch = pathname.match(/^\/api\/(approve|reject|ack)\/([^/]+)$/);
+  const actionMatch = pathname.match(/^\/api\/(approve|reject|ack|requeue)\/([^/]+)$/);
   if (req.method === 'POST' && actionMatch) {
     const [, action, rawId] = actionMatch;
     const id = decodeURIComponent(rawId);
     if (action === 'approve') await approveEvent(id);
     if (action === 'reject') await rejectEvent(id);
     if (action === 'ack') await ackEvent(id);
+    if (action === 'requeue') await requeueEvent(id);
     return sendJson(res, 200, { ok: true });
   }
 
@@ -1004,7 +1020,7 @@ const html = String.raw`<!doctype html>
 
       renderQueue();
       renderDirectory('inflight', { actions: ['ack'] });
-      renderDirectory('failed', { actions: [] });
+      renderDirectory('failed', { actions: ['requeue'] });
       renderDirectory('done', { actions: [] });
       renderDirectory('acks', { actions: [] });
       renderCodexSessions();

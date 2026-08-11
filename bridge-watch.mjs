@@ -236,6 +236,17 @@ function isTmuxTargetAlive(target) {
   return result.status === 0;
 }
 
+function isTmuxPaneBusy(target) {
+  if (!target.startsWith('tmux:')) return false;
+  const tmuxTarget = target.slice('tmux:'.length);
+  const pane = capturePane(target, 5);
+  if (!pane) return false;
+  const lastLines = pane.trim().split('\n').slice(-3).join('\n');
+  const idleMarkers = [/^\$\s*$/, /^\>\s*$/, /^❯\s*$/, /^➜\s*$/, /Waiting for/, /^Claude Code$/];
+  const isIdle = idleMarkers.some((re) => re.test(lastLines.trim()));
+  return !isIdle;
+}
+
 function injectWithVerify(target, message, control) {
   if (target === 'noop') return { verified: true };
   if (!target.startsWith('tmux:')) {
@@ -297,10 +308,13 @@ async function checkInflightTimeout() {
     }
     const agentConfig = (control.agents || {})[agentName] || {};
     const target = agentConfig.target || 'noop';
-    const alive = isTmuxTargetAlive(target);
-    if (!alive) {
+    if (!isTmuxTargetAlive(target)) {
       await rename(path.join(runtime.bridgeDir, 'inflight', name), path.join(runtime.bridgeDir, 'failed', name));
       await appendLog(`timeout failed ${id} (tmux session dead) elapsed=${Math.round(elapsed / 1000)}s`);
+      continue;
+    }
+    if (isTmuxPaneBusy(target)) {
+      await appendLog(`timeout skipped ${id} (tmux pane still busy, agent likely working) elapsed=${Math.round(elapsed / 1000)}s`);
       continue;
     }
     const retryCount = event.retryCount ?? 0;
