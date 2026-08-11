@@ -72,6 +72,24 @@ async function maybeQueueReviewReady(event, id) {
   const donePath = path.join(runtime.bridgeDir, 'done', notifyName);
   if (existsSync(queuePath) || existsSync(inflightPath) || existsSync(donePath)) return;
 
+  let thread = null;
+  if (event.threadId) {
+    const threadPath = path.join(runtime.bridgeDir, 'threads', `${event.threadId}.json`);
+    if (existsSync(threadPath)) {
+      thread = await readJson(threadPath, null);
+    }
+  }
+  const threadActive = thread && thread.type === 'plan-execution' && (thread.status === 'in-progress' || thread.status === 'waiting-review');
+  const bodyLines = [`${agentName} has written the review for ${id}. Read reviewFile, then act:`];
+  bodyLines.push('- If the review raises issues: send a NEW event (do not reply with another review).');
+  if (threadActive) {
+    bodyLines.push(`- This thread "${event.threadId}" is still ${thread.status}. You MUST send a new event for the next stage. Do not stop here.`);
+  } else {
+    bodyLines.push('- If the review passes and the thread is complete: update threads/<threadId>.json status to "done".');
+    bodyLines.push('- If this is a plan-execution thread and the current stage passed: send a NEW event for the next stage.');
+  }
+  bodyLines.push('Do not silently ignore the review. Always take action.');
+
   await writeJson(queuePath, {
     id: notifyId,
     from: agentName,
@@ -82,11 +100,7 @@ async function maybeQueueReviewReady(event, id) {
     replyTo: id,
     ...(event.threadId ? { threadId: event.threadId } : {}),
     ...(event.autoHops && event.type !== 'review_ready' ? { autoHops: event.autoHops } : {}),
-    body: `${agentName} has written the review for ${id}. Read reviewFile, then decide:\n` +
-      `- If the review raises issues that need action: send a NEW event (do not reply with another review).\n` +
-      `- If the review passes and the thread is complete: update threads/${event.threadId || id}.json status to "done".\n` +
-      `- If this is a plan-execution thread and the current stage passed: send a NEW event for the next stage.\n` +
-      `Do not silently ignore the review. Always take one of the above actions.`,
+    body: bodyLines.join('\n'),
     reviewFile: reviewPath,
     ackFile: path.join(runtime.bridgeDir, 'acks', `${id}.json`),
     createdAt: new Date().toISOString()
