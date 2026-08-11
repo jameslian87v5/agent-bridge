@@ -81,8 +81,12 @@ async function maybeQueueReviewReady(event, id) {
     summary: `Review ready: ${id}`,
     replyTo: id,
     ...(event.threadId ? { threadId: event.threadId } : {}),
-    ...(event.autoHops ? { autoHops: event.autoHops } : {}),
-    body: `${agentName} has written the review for ${id}. Read reviewFile and continue only if action is needed.`,
+    ...(event.autoHops && event.type !== 'review_ready' ? { autoHops: event.autoHops } : {}),
+    body: `${agentName} has written the review for ${id}. Read reviewFile, then decide:\n` +
+      `- If the review raises issues that need action: send a NEW event (do not reply with another review).\n` +
+      `- If the review passes and the thread is complete: update threads/${event.threadId || id}.json status to "done".\n` +
+      `- If this is a plan-execution thread and the current stage passed: send a NEW event for the next stage.\n` +
+      `Do not silently ignore the review. Always take one of the above actions.`,
     reviewFile: reviewPath,
     ackFile: path.join(runtime.bridgeDir, 'acks', `${id}.json`),
     createdAt: new Date().toISOString()

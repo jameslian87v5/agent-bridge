@@ -90,13 +90,20 @@ will inject it into their terminal.
 ## Review Cycle (One-Shot)
 
 The review cycle is **one-shot**: receiver writes review → watcher auto-notifies
-sender via `review_ready` event → sender reads review → done.
+sender via `review_ready` event → sender reads review → **must act**.
 
 `review_ready` events do **not** trigger another `review_ready`. The cycle stops
-after one round. If you need further action, use the `send` command above to
-create a **new** `queue/*.json` event with `replyTo` and `threadId`.
+after one round. After reading the review, you **must** take one of these actions:
 
-Do not hide new work inside a review. Always use `send` for follow-ups.
+1. **Issues found** → send a NEW `queue` event with `--reply-to` and `--thread-id`
+   describing what to fix. Do not reply with another review.
+2. **Review passes, thread complete** → update `threads/<threadId>.json` status
+   to `"done"`. No new event needed.
+3. **Review passes, next stage in plan** → send a NEW `queue` event for the next
+   stage with the same `--thread-id` and `--type plan-execution`.
+
+**Never silently ignore a review_ready event.** Always ack it, read the review,
+and take one of the above actions.
 
 ## Anti-Ping-Pong Rules
 
