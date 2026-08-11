@@ -7,12 +7,14 @@ import {
   defaultControl,
   defaultInjectTemplate,
   ensureBridge,
+  buildThreadHint,
   nextAutoHops,
   normalizeControl,
   readArg,
   readControl,
   readJson,
   resolveRuntime,
+  updateThreadStatus,
   writeJson
 } from './lib/config.mjs';
 
@@ -86,6 +88,9 @@ async function maybeQueueReviewReady(event, id) {
     createdAt: new Date().toISOString()
   });
   await appendLog(`queued review_ready ${notifyId} to=${event.from}`);
+  if (event.threadId) {
+    await updateThreadStatus(runtime.bridgeDir, event.threadId, 'waiting-review');
+  }
 }
 
 async function maybeInjectNext() {
@@ -155,6 +160,7 @@ async function maybeInjectNext() {
   const agentConfig = (control.agents || {})[agentName] || {};
   const template = (control.injectTemplates || {})[agentName] || defaultInjectTemplate;
   const role = agentConfig.role ? ` ${agentConfig.role}` : '';
+  const threadHint = await buildThreadHint(runtime.bridgeDir, event.threadId);
   const message = renderTemplate(template, {
     id,
     agentName,
@@ -164,6 +170,7 @@ async function maybeInjectNext() {
     requestedAction: event.requestedAction || '',
     summary: event.summary || '',
     role,
+    threadHint,
     ...paths
   });
   const target = agentConfig.target || 'noop';
@@ -293,6 +300,7 @@ async function checkInflightTimeout() {
       bridgeDir: runtime.bridgeDir
     };
     const role = agentConfig.role ? ` ${agentConfig.role}` : '';
+    const threadHint = await buildThreadHint(runtime.bridgeDir, event.threadId);
     const message = renderTemplate(template, {
       id,
       agentName,
@@ -302,6 +310,7 @@ async function checkInflightTimeout() {
       requestedAction: event.requestedAction || '',
       summary: event.summary || '',
       role,
+      threadHint,
       ...paths
     });
     const injectResult = injectWithVerify(target, message, control);

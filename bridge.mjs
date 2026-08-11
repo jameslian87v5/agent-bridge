@@ -8,6 +8,7 @@ import {
   defaultControl,
   dirs,
   ensureBridge,
+  ensureThread,
   findEventById,
   normalizeControl,
   readArg,
@@ -187,6 +188,7 @@ async function commandSend(args) {
   const body = readArg(args, '--body') ?? '';
   const bodyFile = readArg(args, '--body-file');
   const threadId = readArg(args, '--thread-id');
+  const threadType = readArg(args, '--type') || 'ad-hoc';
   const replyTo = readArg(args, '--reply-to');
   const id = `evt_${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`;
   const worktreeRequired = args.includes('--worktree');
@@ -205,7 +207,10 @@ async function commandSend(args) {
     createdAt: new Date().toISOString()
   };
   if (bodyFile) event.bodyFile = bodyFile;
-  if (threadId) event.threadId = threadId;
+  if (threadId) {
+    event.threadId = threadId;
+    await ensureThread(runtime.bridgeDir, threadId, threadType);
+  }
   if (replyTo) {
     event.replyTo = replyTo;
     const predecessor = await findEventById(runtime.bridgeDir, replyTo);

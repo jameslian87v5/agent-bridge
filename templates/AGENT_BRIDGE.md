@@ -54,6 +54,21 @@ For long tasks, write ack immediately so the watcher does not re-inject
 the event after the 5-minute timeout. The review can follow later — the
 watcher will send a `review_ready` notification once it appears.
 
+## Thread Awareness
+
+Events may carry a `threadId`. If present, a thread state file exists at
+`threads/<threadId>.json` with the thread type and status:
+
+- **`plan-execution`** — multi-stage task with a plan. Follow stages in order, do not skip ahead. Use `--type plan-execution` when starting the thread.
+- **`discussion`** — open-ended discussion. Iterate until convergence, then mark thread done.
+- **`review`** — single-round review. Complete and close.
+- **`ad-hoc`** — one-off task, no thread state needed.
+
+When you receive an event with a threadId, read `threads/<threadId>.json` to
+understand where this thread stands. In your review, state whether the current
+stage passed or failed. If you need to continue the thread, send a new event
+with the same `--thread-id`.
+
 ## Follow-Up Work (Creating New Events)
 
 If the other agent needs to act after your review, **do not** just mention it
@@ -64,6 +79,7 @@ node agent-bridge/bridge.mjs send \
   --to <target-agent> \
   --reply-to <original-event-id> \
   --thread-id <thread-id> \
+  --type <plan-execution|discussion|review|ad-hoc> \
   --subject "what needs to be done" \
   --body "detailed instructions"
 ```

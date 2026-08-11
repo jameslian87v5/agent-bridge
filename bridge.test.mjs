@@ -715,7 +715,7 @@ test('target command updates the selected agent target in control.json', async (
 test('watcher tick only moves approved queue events addressed to the selected agent', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
-    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'threads']) {
       await mkdir(path.join(bridgeDir, dir), { recursive: true });
     }
 
@@ -756,7 +756,7 @@ test('watcher tick only moves approved queue events addressed to the selected ag
 test('watcher auto-injects review_ready notifications in manual mode', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
-    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'threads']) {
       await mkdir(path.join(bridgeDir, dir), { recursive: true });
     }
 
@@ -791,7 +791,7 @@ test('watcher auto-injects review_ready notifications in manual mode', async () 
 test('watch-all once processes each configured agent', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
-    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'threads']) {
       await mkdir(path.join(bridgeDir, dir), { recursive: true });
     }
 
@@ -830,7 +830,7 @@ test('watch-all once processes each configured agent', async () => {
 test('watcher queues review_ready notification back to original sender', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
-    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'threads']) {
       await mkdir(path.join(bridgeDir, dir), { recursive: true });
     }
 
@@ -882,7 +882,7 @@ test('watcher queues review_ready notification back to original sender', async (
 test('watcher does not queue review_ready for review_ready events', async () => {
   const { workspace, bridgeDir } = await makeWorkspace();
   try {
-    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs']) {
+    for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'threads']) {
       await mkdir(path.join(bridgeDir, dir), { recursive: true });
     }
 
@@ -925,7 +925,7 @@ test('watcher does not queue review_ready for review_ready events', async () => 
 
 async function makeAutoHopWorkspace(autoHops, extraControl = {}) {
   const { workspace, bridgeDir } = await makeWorkspace();
-  for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'failed']) {
+  for (const dir of ['queue', 'inflight', 'done', 'acks', 'reviews', 'artifacts', 'logs', 'failed', 'threads']) {
     await mkdir(path.join(bridgeDir, dir), { recursive: true });
   }
   await writeFile(
