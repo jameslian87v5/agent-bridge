@@ -239,12 +239,16 @@ pre-creates `codex`/`claude-code`. Agents only exist if you add them (setup,
 
 ## Receiver Contract
 
-An agent that receives an event must write both:
+An agent that receives an event must write both files:
 
 ```text
-reviews/<event_id>.review.md
-acks/<event_id>.json
+acks/<event_id>.json        # write FIRST — prevents timeout re-injection
+reviews/<event_id>.review.md # write when work is complete
 ```
+
+Write **ack immediately** to acknowledge receipt. This stops the 5-minute
+timeout from re-injecting the event. Write **review when the work is done** —
+the watcher will send a `review_ready` back to the sender once it appears.
 
 Minimal ack:
 

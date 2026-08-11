@@ -43,12 +43,16 @@ When you receive a bridge event:
 1. Read the event JSON.
 2. Read `bodyFile` or referenced artifacts if present.
 3. Inspect referenced files and the current git diff if relevant.
-4. Write both required files:
-   - `reviews/<event_id>.review.md`
+4. Write ack first to acknowledge receipt and prevent timeout re-injection:
    - `acks/<event_id>.json`
-5. Do not only answer in chat.
+5. Do the work, then write review when complete:
+   - `reviews/<event_id>.review.md`
+6. Do not only answer in chat.
 
 Keep reviews concise and actionable.
+For long tasks, write ack immediately so the watcher does not re-inject
+the event after the 5-minute timeout. The review can follow later — the
+watcher will send a `review_ready` notification once it appears.
 
 ## Follow-Up Work (Creating New Events)
 

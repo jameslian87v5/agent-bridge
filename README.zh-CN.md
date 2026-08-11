@@ -90,9 +90,10 @@ Agent A                          Agent B
   │                                │
   ├─ send queue event ──────────▶  │ watcher 注入 B 的 tmux 终端
   │                                ├─ B 读事件、干活
-  │                                ├─ B 写 review + ack
+  │                                ├─ B 先写 ack（防超时重注入）
+  │                                ├─ B 干活，写 review
   │  ◀── review_ready（自动）──────┤ watcher 通知 A
-  ├─ A 读 review，ack 关闭         │
+  ├─ A 读 review                   │
   │                                │
   │  还要继续？发一个【新】事件 ──▶ │（绝不用 review 回 review）
 ```
@@ -114,7 +115,7 @@ logs/       watcher 日志
 
 - **queue 产生工作** — 需要别的 Agent 行动，就发新事件。不要把新工作藏在 review 里
 - **review 只记录结果** — review 不连锁触发 review。一收一发，到此为止
-- **ack 关闭事件** — watcher 检测到 ack 文件，把 inflight 移到 done
+- **ack 先写，review 后写** — ack 立即确认收到（防止 5 分钟超时重注入），review 完成工作后再写。watcher 检测到任一文件就把 inflight 移到 done
 
 ## 快速开始
 
@@ -161,9 +162,11 @@ agent-bridge send \
 
 ### 超时与重试
 
-注入后 5 分钟（`inflightTimeoutMs`）没 ack → 自动重注入，`retryCount + 1`。
+注入后 5 分钟（`inflightTimeoutMs`）没 ack 也没 review → 自动重注入，`retryCount + 1`。
 最多重试 2 次（`maxRetries`）。tmux session 死了直接进 `failed/`。
-如果已有 review 但没 ack，视为完成，移到 `done/`。
+如果已有 review 或 ack，视为完成，移到 `done/`。
+**长任务建议**：Agent 收到事件后先写 ack 确认收到，再慢慢干活写 review。
+这样不会触发超时重注入。
 
 ### restart 一步到位
 
