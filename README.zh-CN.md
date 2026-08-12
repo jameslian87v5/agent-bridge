@@ -119,6 +119,8 @@ logs/       watcher 日志
 
 ## 快速开始
 
+需要 **Node.js 18+** 和 **tmux**。macOS 和 Linux 通常自带 tmux；Windows 可通过 [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install)（`sudo apt install tmux`）、[MSYS2](https://www.msys2.org/)（`pacman -S tmux`）或 [Cygwin](https://www.cygwin.com/) 安装。
+
 ```bash
 # 1. 安装（一次）
 cd /path/to/agent-bridge && npm link

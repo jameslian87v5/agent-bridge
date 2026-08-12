@@ -46,6 +46,12 @@ Three rules:
 
 ## Install
 
+Requires **Node.js 18+** and **tmux**.
+
+tmux is pre-installed on macOS and most Linux distros. On Windows, install it via
+[WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) (`sudo apt install tmux`),
+[MSYS2](https://www.msys2.org/) (`pacman -S tmux`), or [Cygwin](https://www.cygwin.com/).
+
 From this repo:
 
 ```bash
