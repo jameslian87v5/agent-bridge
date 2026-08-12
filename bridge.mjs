@@ -300,18 +300,29 @@ async function commandInstallRules(args) {
 }
 
 async function linkAgentDocs(args, control) {
+  const resolvedControl = control || await readControl(runtime.controlPath);
+  const agents = Object.keys(resolvedControl.agents || {});
+  const docAgentMap = {
+    'CLAUDE.md': agents.find((n) => /claude/i.test(n)),
+    'AGENTS.md': agents.find((n) => /codex/i.test(n))
+  };
   const docs = ['AGENTS.md', 'CLAUDE.md'];
   if (args.includes('--include-windsurf')) {
     docs.push(path.join('.windsurf', 'rules', 'agent-bridge.md'));
     if (existsSync(path.join(runtime.projectRoot, '.windsurfrules'))) docs.push('.windsurfrules');
   }
-  const resolvedControl = control || await readControl(runtime.controlPath);
-  const rendered = await renderBridgeRules(resolvedControl);
-  const block = `<!-- agent-bridge:start -->\n${rendered}\n<!-- agent-bridge:end -->\n`;
   for (const relativePath of docs) {
+    const agentName = docAgentMap[relativePath];
+    let rendered = await renderBridgeRules(resolvedControl);
+    if (agentName) {
+      const agentCfg = resolvedControl.agents[agentName] || {};
+      const roleLine = agentCfg.role ? ` (role: ${agentCfg.role})` : '';
+      rendered = `> **You are \`${agentName}\`** in this bridge workspace${roleLine}.\n> Your tmux target is \`${agentCfg.target || 'unknown'}\`.\n\n` + rendered;
+    }
+    const block = `<!-- agent-bridge:start -->\n${rendered}\n<!-- agent-bridge:end -->\n`;
     const target = path.join(runtime.projectRoot, relativePath);
     await writeMarkedBlock(target, block);
-    console.log(`linked=${target}`);
+    console.log(`linked=${target}${agentName ? ` agent=${agentName}` : ''}`);
   }
 }
 
